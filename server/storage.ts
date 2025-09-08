@@ -100,7 +100,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(agents)
       .where(and(eq(agents.id, id), eq(agents.userId, userId)));
-    return result.rowCount > 0;
+    return (result.rowCount || 0) > 0;
   }
 
   async getKnowledgeDocuments(agentId: string, userId: string): Promise<KnowledgeDocument[]> {

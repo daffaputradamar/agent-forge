@@ -60,7 +60,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       contents: { parts: [{ text }] },
     });
 
-    return response.embedding?.values || [];
+    return response.embeddings?.[0]?.values || [];
   } catch (error: any) {
     throw new Error(`Failed to generate embedding: ${error?.message || error}`);
   }
