@@ -14,6 +14,8 @@ interface ChatInterfaceProps {
   agent: Agent;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // if provided, the chat will load this conversation id instead of creating a new one
+  initialConversationId?: string | null;
 }
 
 function getAgentInitials(name: string) {
@@ -38,29 +40,79 @@ function getGradientClass(agentId: string) {
   return gradientClasses[index];
 }
 
-export default function ChatInterface({ agent, open, onOpenChange }: ChatInterfaceProps) {
-  const [conversationId, setConversationId] = useState<string | null>(null);
+export default function ChatInterface({ agent, open, onOpenChange, initialConversationId }: ChatInterfaceProps) {
+  const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null);
   const [inputValue, setInputValue] = useState("");
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Simple Markdown -> HTML converter (no external deps).
+  // Supports code blocks (```), inline code (`), bold (**text**), italic (*text*), links [text](url), and line breaks.
+  function escapeHtml(str: string) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function mdToHtml(input: string) {
+    if (!input) return "";
+
+    // Escape first
+    let s = escapeHtml(input);
+
+    // Fenced code blocks ```code```
+    s = s.replace(/```([\s\S]*?)```/g, (_m, code) => {
+      return `<pre><code>${escapeHtml(code)}</code></pre>`;
+    });
+
+    // Inline code `code`
+    s = s.replace(/`([^`]+)`/g, (_m, code) => `<code>${escapeHtml(code)}</code>`);
+
+    // Links [text](url)
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`);
+
+    // Bold **text**
+    s = s.replace(/\*\*(.+?)\*\*/g, (_m, txt) => `<strong>${txt}</strong>`);
+
+    // Italic *text* (avoid matching **)
+    s = s.replace(/(^|[^*])\*(?!\*)([^*]+?)\*(?!\*)/g, (_m, p, txt) => `${p}<em>${txt}</em>`);
+
+    // Convert remaining single newlines to <br />
+    s = s.replace(/\n/g, '<br/>');
+
+    return s;
+  }
   
   const createConversation = useCreateConversation();
   const sendMessage = useSendMessage();
   const { data: messages = [], isLoading: messagesLoading } = useMessages(conversationId || "");
 
   useEffect(() => {
-    if (open && !conversationId) {
-      // Create a new conversation when chat opens
-      createConversation.mutate(
+    // sync incoming conversation id prop into local state
+    if (initialConversationId) {
+      setConversationId(initialConversationId);
+    }
+
+  if (open && !conversationId && !initialConversationId && !createConversation.isPending) {
+      // Create a new conversation when chat opens. Guard against repeated
+      // calls by checking the mutation pending state. Do not include the
+      // mutation object in deps to avoid identity changes retriggering the effect.
+      createConversation.create(
         { agentId: agent.id, title: `Chat with ${agent.name}` },
         {
-          onSuccess: (conversation) => {
+          onSuccess: (conversation: any) => {
             setConversationId(conversation.id);
           }
         }
       );
     }
-  }, [open, conversationId, agent.id, createConversation]);
+    // Intentionally omit createConversation from dependencies to avoid
+    // effect retriggers when the mutation object identity changes.
+  }, [open, conversationId, agent.id, initialConversationId]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -69,12 +121,20 @@ export default function ChatInterface({ agent, open, onOpenChange }: ChatInterfa
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !conversationId || sendMessage.isPending) return;
+    if (!inputValue.trim() || !conversationId || isTyping) return;
 
     const content = inputValue.trim();
     setInputValue("");
 
-    sendMessage.mutate({ conversationId, content });
+    setIsTyping(true);
+    sendMessage.mutate(
+      { conversationId, content },
+      {
+        onSettled: () => {
+          setIsTyping(false);
+        }
+      }
+    );
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -173,9 +233,18 @@ export default function ChatInterface({ agent, open, onOpenChange }: ChatInterfa
                             : "bg-muted border border-border"
                         )}
                       >
-                        <p className="text-sm" data-testid={`text-message-${message.id}`}>
-                          {message.content}
-                        </p>
+                        {message.role === "assistant" ? (
+                          <div
+                            className="prose text-sm"
+                            data-testid={`text-message-${message.id}`}
+                            // render converted HTML from markdown
+                            dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }}
+                          />
+                        ) : (
+                          <p className="text-sm" data-testid={`text-message-${message.id}`}>
+                            {message.content}
+                          </p>
+                        )}
                         <p className="text-xs opacity-70 mt-1">
                           {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
                         </p>
@@ -188,7 +257,7 @@ export default function ChatInterface({ agent, open, onOpenChange }: ChatInterfa
                       )}
                     </div>
                   ))}
-                  {sendMessage.isPending && (
+                  {(isTyping || sendMessage.isPending) && (
                     <div className="flex items-start space-x-2">
                       <div className={`w-6 h-6 bg-gradient-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
                         <span className="text-white text-xs">

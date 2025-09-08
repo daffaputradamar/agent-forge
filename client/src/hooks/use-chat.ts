@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { useToast } from "./use-toast";
+import { useCallback } from "react";
 
 export function useConversations(agentId?: string) {
   return useQuery({
@@ -21,7 +22,7 @@ export function useCreateConversation() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: ({ agentId, title }: { agentId: string; title?: string }) =>
       api.createConversation(agentId, title),
     onSuccess: () => {
@@ -36,6 +37,15 @@ export function useCreateConversation() {
       });
     },
   });
+
+  const create = useCallback((data: { agentId: string; title?: string }, options?: any) => {
+    return mutation.mutate(data, options);
+  }, [mutation]);
+
+  return {
+    ...mutation,
+    create,
+  };
 }
 
 export function useSendMessage() {

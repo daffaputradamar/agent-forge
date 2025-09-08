@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Agent } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,13 +16,20 @@ import {
 } from "@/components/ui/select";
 import { formatDistanceToNow } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import ChatInterface from "@/components/chat/chat-interface";
 
 export default function Conversations() {
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("__all__");
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: agents, isLoading: agentsLoading } = useAgents();
-  const { data: conversations, isLoading: conversationsLoading } = useConversations(selectedAgentId || undefined);
+  // Map the sentinel '__all__' to undefined so the hook fetches all conversations.
+  const { data: conversations, isLoading: conversationsLoading } = useConversations(selectedAgentId === "__all__" ? undefined : selectedAgentId);
+
+  // Inline chat state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatAgent, setChatAgent] = useState<Agent | null>(null);
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null);
 
   const filteredConversations = conversations?.filter(conv =>
     conv.title?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -78,7 +86,7 @@ export default function Conversations() {
               <SelectValue placeholder="All agents" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All agents</SelectItem>
+              <SelectItem value="__all__">All agents</SelectItem>
               {agentsLoading ? (
                 <div className="p-2">Loading agents...</div>
               ) : agents?.map((agent) => (
@@ -131,10 +139,17 @@ export default function Conversations() {
             )}
           </CardContent>
         </Card>
-      ) : (
+        ) : (
         <div className="space-y-4">
           {filteredConversations.map((conversation) => (
-            <Card key={conversation.id} className="hover:bg-muted/50 transition-colors cursor-pointer">
+            <Card key={conversation.id} className="hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => {
+              const agent = agents?.find(a => a.id === conversation.agentId);
+              if (agent) {
+                setChatAgent(agent);
+                setChatConversationId(conversation.id);
+                setChatOpen(true);
+              }
+            }}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
@@ -175,6 +190,14 @@ export default function Conversations() {
           ))}
         </div>
       )}
+
+      {/* Inline Chat UI for quick previews */}
+      <ChatInterface
+        agent={chatAgent || (agents && agents[0]) as any}
+        open={chatOpen}
+        onOpenChange={(open) => setChatOpen(open)}
+        initialConversationId={chatConversationId}
+      />
     </div>
   );
 }

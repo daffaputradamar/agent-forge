@@ -120,9 +120,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {
+    // Ensure embedding is stored as a JSON string if an array is passed in
+    const safeUpdates = { ...updates } as Partial<KnowledgeDocument>;
+    if ((safeUpdates as any).embedding && Array.isArray((safeUpdates as any).embedding)) {
+      (safeUpdates as any).embedding = JSON.stringify((safeUpdates as any).embedding);
+    }
+
     const [updatedDoc] = await db
       .update(knowledgeDocuments)
-      .set(updates)
+      .set(safeUpdates)
       .where(eq(knowledgeDocuments.id, id))
       .returning();
     return updatedDoc || undefined;

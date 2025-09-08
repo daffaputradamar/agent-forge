@@ -6,14 +6,28 @@ import { generateAgentResponse, processKnowledgeDocument, findRelevantKnowledge 
 import multer from "multer";
 import { z } from "zod";
 
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Mock user for demo purposes - in real app you'd have authentication
-  const DEMO_USER_ID = "demo-user";
+  // Ensure a demo user exists for demo purposes (real apps should use proper auth).
+  // We look up a user with username 'demo' and create it if missing, then use its id.
+  let DEMO_USER_ID: string;
+  try {
+    const existing = await storage.getUserByUsername("demo");
+    if (existing) {
+      DEMO_USER_ID = existing.id;
+    } else {
+      const created = await storage.createUser({ username: "demo", password: "demo", email: "demo@example.com" });
+      DEMO_USER_ID = created.id;
+    }
+  } catch (err) {
+    // If user lookup/creation fails, rethrow so the server doesn't start in a broken state
+    console.error("Failed to ensure demo user exists:", err);
+    throw err;
+  }
 
   // Agents routes
   app.get("/api/agents", async (req, res) => {
@@ -97,27 +111,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const content = req.file.buffer.toString('utf-8');
-      
+      const rawBuffer = req.file.buffer;
+
+      // If the uploaded file contains NUL bytes, Postgres text columns will
+      // reject the value with an "invalid byte sequence for encoding \"UTF8\""
+      // error. Strip any NUL bytes before converting to string. For binary
+      // files you may want to store as base64 or use a bytea column instead.
+      let content: string;
+      if (rawBuffer.includes(0)) {
+        console.warn(`Uploaded file ${req.file.originalname} contains NUL bytes; stripping before DB insert.`);
+        content = rawBuffer.toString('utf-8').replace(/\u0000/g, '');
+      } else {
+        content = rawBuffer.toString('utf-8');
+      }
+
+      // If PDF, try to extract text instead of using raw binary content
+      let processedContent = content;
+        try {
+          if (req.file.mimetype === 'application/pdf') {
+            try {
+              // Use pdfjs-dist directly and pass a Uint8Array (pdfjs expects typed array)
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore
+              const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+
+              // Convert Buffer to Uint8Array in a safe way
+              const uint8 = new Uint8Array(rawBuffer.buffer, rawBuffer.byteOffset, rawBuffer.byteLength);
+
+              const loadingTask = pdfjs.getDocument({ data: uint8 });
+              const pdf = await loadingTask.promise;
+              let fullText = '';
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                const strings = content.items.map((it: any) => it.str || '').join(' ');
+                fullText += strings + '\n\n';
+              }
+              if (fullText.trim()) {
+                processedContent = fullText;
+                console.info(`PDF text extracted: length=${fullText.length} chars, pages=${pdf.numPages}`);
+              } else {
+                console.info(`PDF extraction produced empty text (pages=${pdf.numPages}) – falling back to raw content.`);
+              }
+            } catch (err) {
+              // pdfjs-dist can warn about optional canvas polyfills (DOMMatrix/Path2D)
+              // Installing `canvas` in the environment can silence those warnings but is optional.
+              console.warn('pdfjs-dist parse failed, falling back to raw text conversion. Tip: install `canvas` to silence DOMMatrix/Path2D warnings:', err);
+            }
+          }
+        } catch (err) {
+          console.warn('Unexpected error parsing PDF, falling back to raw text conversion:', err);
+        }
+
       // Process the document with OpenAI
-      const { summary, embedding } = await processKnowledgeDocument(content);
+      const { summary, embedding } = await processKnowledgeDocument(processedContent);
 
       const docData = {
         agentId: req.params.agentId,
         userId: DEMO_USER_ID,
         filename: req.file.originalname,
-        content: content,
+        content: processedContent,
         fileSize: req.file.size,
         mimeType: req.file.mimetype,
       };
 
       const document = await storage.createKnowledgeDocument(docData);
-      
-      // Update with embedding
-      await storage.updateKnowledgeDocument(document.id, {
-        embedding: JSON.stringify(embedding),
-        processed: true,
-      });
+
+      // Update with embedding only if embedding data is valid
+      if (Array.isArray(embedding) && embedding.length > 0) {
+        await storage.updateKnowledgeDocument(document.id, {
+          embedding: JSON.stringify(embedding),
+          processed: true,
+        });
+      } else {
+        console.warn(`processKnowledgeDocument returned empty embedding for file ${req.file.originalname}`);
+        // leave processed = false so it won't be considered by the retriever
+        await storage.updateKnowledgeDocument(document.id, {
+          processed: false,
+        });
+      }
 
       res.status(201).json({ ...document, summary });
     } catch (error) {
@@ -195,9 +267,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get relevant knowledge
       const knowledgeDocuments = await storage.getKnowledgeDocuments(agent.id, DEMO_USER_ID);
+      console.debug(`Loaded ${knowledgeDocuments.length} knowledge documents for agent ${agent.id}`);
       const processedDocs = knowledgeDocuments
         .filter(doc => doc.processed && doc.embedding)
         .map(doc => ({ content: doc.content, embedding: doc.embedding! }));
+
+      console.debug(`Processed docs with embeddings: ${processedDocs.length}`);
 
       const knowledgeContext = await findRelevantKnowledge(content, processedDocs);
 
