@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, MessageSquare, Clock, User } from "lucide-react";
+import { Search, MessageSquare, Clock, User, Trash } from "lucide-react";
 import { useConversations } from "@/hooks/use-chat";
+import { useDeleteConversation } from "@/hooks/use-chat";
 import { useAgents } from "@/hooks/use-agents";
 import {
   Select,
@@ -14,6 +15,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { formatDistanceToNow } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import ChatInterface from "@/components/chat/chat-interface";
@@ -25,6 +36,8 @@ export default function Conversations() {
   const { data: agents, isLoading: agentsLoading } = useAgents();
   // Map the sentinel '__all__' to undefined so the hook fetches all conversations.
   const { data: conversations, isLoading: conversationsLoading } = useConversations(selectedAgentId === "__all__" ? undefined : selectedAgentId);
+  const deleteMutation = useDeleteConversation();
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
 
   // Inline chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -72,7 +85,7 @@ export default function Conversations() {
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-card"
                 data-testid="input-search-conversations"
               />
             </div>
@@ -82,7 +95,7 @@ export default function Conversations() {
             value={selectedAgentId} 
             onValueChange={setSelectedAgentId}
           >
-            <SelectTrigger className="w-64" data-testid="select-agent-filter">
+            <SelectTrigger className="w-64 bg-card" data-testid="select-agent-filter">
               <SelectValue placeholder="All agents" />
             </SelectTrigger>
             <SelectContent>
@@ -119,7 +132,7 @@ export default function Conversations() {
                   No conversations found matching "{searchQuery}"
                 </p>
                 <Button 
-                  variant="outline" 
+                  variant="secondary" 
                   onClick={() => setSearchQuery("")}
                   data-testid="button-clear-search"
                 >
@@ -181,8 +194,21 @@ export default function Conversations() {
                       className={getStatusColor(conversation.status)}
                       data-testid={`badge-conversation-status-${conversation.id}`}
                     >
-                      {conversation.status}
+                      {conversation.status.replace(/\b\w/g, char => char.toUpperCase())}
                     </Badge>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="bg-card border border-destructive text-destructive hover:bg-destructive hover:text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingConversationId(conversation.id);
+                      }}
+                      aria-label="Delete conversation"
+                      data-testid={`button-delete-conversation-${conversation.id}`}
+                    >
+                      <Trash className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -192,6 +218,28 @@ export default function Conversations() {
       )}
 
       {/* Inline Chat UI for quick previews */}
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deletingConversationId} onOpenChange={(open) => { if (!open) setDeletingConversationId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete conversation</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will permanently delete the conversation and cannot be undone. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (deletingConversationId) {
+                deleteMutation.mutate(deletingConversationId);
+              }
+              setDeletingConversationId(null);
+            }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ChatInterface
         agent={chatAgent || (agents && agents[0]) as any}
         open={chatOpen}

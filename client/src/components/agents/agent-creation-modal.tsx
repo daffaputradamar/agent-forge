@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useCreateAgent } from "@/hooks/use-agents";
+import { useCreateAgent, useUpdateAgent } from "@/hooks/use-agents";
 import FileUpload from "@/components/knowledge/file-upload";
 import type { CreateAgentData } from "@/types";
 
@@ -42,12 +42,15 @@ const agentSchema = z.object({
 interface AgentCreationModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  agentToEdit?: any; // using any to avoid circular import of Agent type; runtime shape matches
 }
 
-export default function AgentCreationModal({ open, onOpenChange }: AgentCreationModalProps) {
+export default function AgentCreationModal({ open, onOpenChange, agentToEdit }: AgentCreationModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
   const createAgent = useCreateAgent();
+  const updateAgent = useUpdateAgent();
+  const isEditing = !!agentToEdit;
 
   const form = useForm<CreateAgentData>({
     resolver: zodResolver(agentSchema),
@@ -61,13 +64,33 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
     },
   });
 
+  // Populate form when editing
+  useEffect(() => {
+    if (open && isEditing && agentToEdit) {
+      form.reset({
+        name: agentToEdit.name || "",
+        description: agentToEdit.description || "",
+        category: agentToEdit.category || "",
+        tone: agentToEdit.tone || "professional",
+        responseStyle: agentToEdit.responseStyle || "detailed",
+        systemInstructions: agentToEdit.systemInstructions || "",
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEditing, agentToEdit?.id]);
+
   const onSubmit = async (data: CreateAgentData) => {
     try {
+      if (isEditing && agentToEdit) {
+        await updateAgent.mutateAsync({ id: agentToEdit.id, data });
+        handleClose();
+        return;
+      }
       const agent = await createAgent.mutateAsync(data);
       setCreatedAgentId(agent.id);
       setCurrentStep(2);
     } catch (error) {
-      // Error handled by mutation
+      // handled by mutation hooks
     }
   };
 
@@ -75,7 +98,9 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
     onOpenChange(false);
     setCurrentStep(1);
     setCreatedAgentId(null);
-    form.reset();
+    if (!isEditing) {
+      form.reset();
+    }
   };
 
   const categories = [
@@ -103,15 +128,14 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
   ];
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+  <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-auto">
         <DialogHeader>
           <DialogTitle>
-            {currentStep === 1 ? "Create New Agent" : "Upload Knowledge (Optional)"}
+      {isEditing ? "Edit Agent" : currentStep === 1 ? "Create New Agent" : "Upload Knowledge (Optional)"}
           </DialogTitle>
         </DialogHeader>
-
-        {currentStep === 1 ? (
+    {(isEditing || currentStep === 1) ? (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               {/* Basic Information */}
@@ -125,7 +149,8 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                       <FormItem>
                         <FormLabel>Agent Name</FormLabel>
                         <FormControl>
-                          <Input 
+                          <Input
+                            className="bg-card" 
                             placeholder="e.g., Customer Support Bot" 
                             {...field}
                             data-testid="input-agent-name"
@@ -144,7 +169,7 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                         <FormLabel>Category</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger data-testid="select-agent-category">
+                            <SelectTrigger data-testid="select-agent-category" className="bg-card">
                               <SelectValue placeholder="Select category" />
                             </SelectTrigger>
                           </FormControl>
@@ -169,9 +194,10 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                     <FormItem className="mt-4">
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="Describe what this agent does..." 
-                          rows={3} 
+                        <Textarea
+                          className="bg-card"
+                          placeholder="Describe what this agent does..."
+                          rows={3}
                           {...field}
                           data-testid="textarea-agent-description"
                         />
@@ -194,7 +220,7 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                         <FormLabel>Tone</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger data-testid="select-agent-tone">
+                            <SelectTrigger data-testid="select-agent-tone" className="bg-card">
                               <SelectValue placeholder="Select tone" />
                             </SelectTrigger>
                           </FormControl>
@@ -219,7 +245,7 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                         <FormLabel>Response Style</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
-                            <SelectTrigger data-testid="select-agent-response-style">
+                            <SelectTrigger data-testid="select-agent-response-style" className="bg-card">
                               <SelectValue placeholder="Select style" />
                             </SelectTrigger>
                           </FormControl>
@@ -244,9 +270,10 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                     <FormItem className="mt-4">
                       <FormLabel>System Instructions</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="You are a helpful customer support agent. Always be polite and provide clear, actionable solutions..." 
-                          rows={4} 
+                        <Textarea
+                          className="bg-card"
+                          placeholder="You are a helpful customer support agent. Always be polite and provide clear, actionable solutions..."
+                          rows={4}
                           {...field}
                           data-testid="textarea-agent-instructions"
                         />
@@ -260,7 +287,7 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
               <div className="flex justify-end space-x-3">
                 <Button 
                   type="button" 
-                  variant="outline" 
+                  variant="secondary" 
                   onClick={handleClose}
                   data-testid="button-cancel-agent-creation"
                 >
@@ -268,10 +295,10 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
                 </Button>
                 <Button 
                   type="submit" 
-                  disabled={createAgent.isPending}
-                  data-testid="button-create-agent"
+                  disabled={isEditing ? updateAgent.isPending : createAgent.isPending}
+                  data-testid={isEditing ? "button-update-agent" : "button-create-agent"}
                 >
-                  {createAgent.isPending ? "Creating..." : "Create Agent"}
+                  {isEditing ? (updateAgent.isPending ? "Saving..." : "Save Changes") : (createAgent.isPending ? "Creating..." : "Create Agent")}
                 </Button>
               </div>
             </form>
@@ -294,7 +321,7 @@ export default function AgentCreationModal({ open, onOpenChange }: AgentCreation
 
             <div className="flex justify-end space-x-3">
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 onClick={handleClose}
                 data-testid="button-skip-knowledge-upload"
               >

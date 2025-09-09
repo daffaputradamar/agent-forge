@@ -51,6 +51,11 @@ export const api = {
     return response.json();
   },
 
+  uploadKnowledgeFromUrl: async (agentId: string, url: string): Promise<KnowledgeDocument> => {
+    const response = await apiRequest("POST", `/api/agents/${agentId}/knowledge/url`, { url });
+    return response.json();
+  },
+
   // Conversations
   getConversations: async (agentId?: string): Promise<Conversation[]> => {
     const url = agentId ? `/api/conversations?agentId=${agentId}` : "/api/conversations";
@@ -61,6 +66,10 @@ export const api = {
   createConversation: async (agentId: string, title?: string): Promise<Conversation> => {
     const response = await apiRequest("POST", "/api/conversations", { agentId, title });
     return response.json();
+  },
+
+  deleteConversation: async (conversationId: string): Promise<void> => {
+    await apiRequest("DELETE", `/api/conversations/${conversationId}`);
   },
 
   // Messages

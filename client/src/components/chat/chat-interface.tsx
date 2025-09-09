@@ -158,7 +158,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
       <CardHeader className="p-4 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`w-8 h-8 bg-gradient-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
+            <div className={`w-8 h-8 bg-linear-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
               <span className="text-white text-sm font-medium">
                 {getAgentInitials(agent.name)}
               </span>
@@ -218,7 +218,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
                       )}
                     >
                       {message.role === "assistant" && (
-                        <div className={`w-6 h-6 bg-gradient-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center flex-shrink-0`}>
+                        <div className={`w-6 h-6 bg-linear-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center shrink-0`}>
                           <span className="text-white text-xs">
                             {getAgentInitials(agent.name)}
                           </span>
@@ -251,7 +251,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
                       </div>
 
                       {message.role === "user" && (
-                        <div className="w-6 h-6 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
+                        <div className="w-6 h-6 bg-muted rounded-full flex items-center justify-center shrink-0">
                           <span className="text-muted-foreground text-xs">You</span>
                         </div>
                       )}
@@ -259,7 +259,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
                   ))}
                   {(isTyping || sendMessage.isPending) && (
                     <div className="flex items-start space-x-2">
-                      <div className={`w-6 h-6 bg-gradient-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
+                      <div className={`w-6 h-6 bg-linear-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
                         <span className="text-white text-xs">
                           {getAgentInitials(agent.name)}
                         </span>

@@ -1,14 +1,30 @@
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { 
-  Bot, 
-  LayoutDashboard, 
-  Book, 
-  MessageSquare, 
-  Share, 
+import {
+  Bot,
+  LayoutDashboard,
+  Book,
+  MessageSquare,
+  Share,
   BarChart3,
-  Settings 
+  Settings
+  , Sun, Moon
 } from "lucide-react";
+import { useTheme } from "../theme-provider";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+  DropdownMenuLabel,
+  DropdownMenuGroup,
+} from "@/components/ui/dropdown-menu";
+import { Button } from "../ui/button";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -26,6 +42,7 @@ const navItems = [
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [location] = useLocation();
+  const { theme, setTheme } = useTheme();
 
   return (
     <aside className={cn(
@@ -42,13 +59,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <h1 className="text-xl font-semibold">Agent Builder</h1>
           </div>
         </div>
-        
+
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
           {navItems.map((item) => {
             const isActive = location === item.path;
             const Icon = item.icon;
-            
+
             return (
               <Link
                 key={item.path}
@@ -56,8 +73,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
                 className={cn(
                   "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
-                  isActive 
-                    ? "bg-accent text-accent-foreground" 
+                  isActive
+                    ? "bg-accent text-accent-foreground"
                     : "hover:bg-accent hover:text-accent-foreground"
                 )}
                 onClick={onClose}
@@ -68,7 +85,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             );
           })}
         </nav>
-        
+
         {/* User Profile */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center space-x-3">
@@ -79,12 +96,45 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <p className="text-sm font-medium truncate">John Doe</p>
               <p className="text-xs text-muted-foreground truncate">john@company.com</p>
             </div>
-            <button 
-              className="text-muted-foreground hover:text-foreground"
-              data-testid="button-user-settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost"><Settings /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" align="start">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem>
+                    Profile
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    Settings
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuGroup>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Toggle Theme</DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onClick={() => setTheme("light")}>
+                          Light
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTheme("dark")}>
+                          Dark
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTheme("system")}>
+                          System
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

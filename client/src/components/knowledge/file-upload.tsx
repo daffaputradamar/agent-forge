@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface FileUploadProps {
   agentId: string;
@@ -22,7 +22,8 @@ interface FileWithStatus {
 
 export default function FileUpload({ agentId, onUploadComplete }: FileUploadProps) {
   const [files, setFiles] = useState<FileWithStatus[]>([]);
-  const { toast } = useToast();
+  const [url, setUrl] = useState("");
+  const [submittingUrl, setSubmittingUrl] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -39,6 +40,8 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
       "text/plain": [".txt"],
       "application/pdf": [".pdf"],
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.ms-excel": [".xls"],
     },
     maxSize: 10 * 1024 * 1024, // 10MB
   });
@@ -66,8 +69,7 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
         i === index ? { ...f, status: "success", progress: 100 } : f
       ));
 
-      toast({
-        title: "Upload successful",
+      toast.success("Upload successful", {
         description: `${fileWithStatus.file.name} has been processed and added to the knowledge base.`,
       });
 
@@ -82,10 +84,8 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
         } : f
       ));
 
-      toast({
-        title: "Upload failed",
+      toast.error('Upload failed', {
         description: `Failed to upload ${fileWithStatus.file.name}. Please try again.`,
-        variant: "destructive",
       });
     }
   };
@@ -112,6 +112,43 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
 
   return (
     <div className="space-y-4">
+      {/* URL Ingestion */}
+      <Card>
+        <CardContent className="pt-6 space-y-3">
+          <p className="text-sm font-medium">Add from Website URL</p>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              placeholder="https://example.com/article"
+              className="flex-1 border rounded-md px-3 py-2 bg-background text-sm"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              data-testid="input-knowledge-url"
+            />
+            <Button
+              disabled={!url || submittingUrl}
+              onClick={async () => {
+                try {
+                  setSubmittingUrl(true);
+                  const doc = await api.uploadKnowledgeFromUrl(agentId, url);
+                  toast.success("URL processed", { description: doc.filename });
+                  setUrl("");
+                  onUploadComplete?.();
+                } catch (e) {
+                  toast.error("Failed to ingest URL", { description: (e as Error).message });
+                } finally {
+                  setSubmittingUrl(false);
+                }
+              }}
+              data-testid="button-submit-knowledge-url"
+            >
+              {submittingUrl ? "Adding..." : "Add"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">We'll fetch the page content, extract readable text, summarize, and embed it.</p>
+        </CardContent>
+      </Card>
+      
       {/* Drop Zone */}
       <div
         {...getRootProps()}
@@ -134,7 +171,7 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
           }
         </p>
         <p className="text-xs text-muted-foreground">
-          Supports PDF, DOCX, TXT files up to 10MB
+          Supports PDF, DOCX, TXT, XLSX (Excel) up to 10MB
         </p>
         <Button 
           type="button" 

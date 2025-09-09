@@ -2,7 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertAgentSchema, insertKnowledgeDocumentSchema, insertConversationSchema, insertMessageSchema } from "@shared/schema";
-import { generateAgentResponse, processKnowledgeDocument, findRelevantKnowledge } from "./openai";
+import { generateAgentResponse, processKnowledgeDocument, findRelevantKnowledge } from "./gemini";
+import * as cheerio from "cheerio";
+import * as XLSX from "xlsx";
 import multer from "multer";
 import { z } from "zod";
 
@@ -127,6 +129,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // If PDF, try to extract text instead of using raw binary content
       let processedContent = content;
+      // Excel (xlsx / xls) -> parse sheets to text
+      if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || req.file.mimetype === 'application/vnd.ms-excel') {
+        try {
+          const wb = XLSX.read(rawBuffer, { type: 'buffer' });
+          const sheetTexts: string[] = [];
+            for (const sheetName of wb.SheetNames) {
+              const sheet = wb.Sheets[sheetName];
+              const csv = XLSX.utils.sheet_to_csv(sheet);
+              if (csv.trim()) sheetTexts.push(`# Sheet: ${sheetName}\n${csv}`);
+            }
+          if (sheetTexts.length) {
+            processedContent = sheetTexts.join('\n\n');
+          }
+        } catch (e) {
+          console.warn('Failed to parse Excel file, falling back to raw text', e);
+        }
+      }
         try {
           if (req.file.mimetype === 'application/pdf') {
             try {
@@ -198,6 +217,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Knowledge URL ingestion
+  app.post("/api/agents/:agentId/knowledge/url", async (req, res) => {
+    try {
+      const { url } = req.body as { url?: string };
+      if (!url || !/^https?:\/\//i.test(url)) {
+        return res.status(400).json({ message: "Invalid URL" });
+      }
+      const response = await fetch(url);
+      if (!response.ok) {
+        return res.status(400).json({ message: `Failed to fetch URL: ${response.status}` });
+      }
+      const html = await response.text();
+      const $ = cheerio.load(html);
+      // Remove script/style/noscript
+      ['script','style','noscript'].forEach(tag => $(tag).remove());
+      const text = $('body').text().replace(/\s+/g, ' ').trim();
+      if (!text) {
+        return res.status(400).json({ message: "No readable text extracted" });
+      }
+      const truncated = text.slice(0, 150_000); // safety limit
+      const { summary, embedding } = await processKnowledgeDocument(truncated);
+      const filename = new URL(url).hostname + (new URL(url).pathname || '/');
+      const docData = {
+        agentId: req.params.agentId,
+        userId: DEMO_USER_ID,
+        filename: `URL: ${filename}`,
+        content: truncated,
+        fileSize: Buffer.byteLength(truncated, 'utf-8'),
+        mimeType: 'text/html',
+      };
+      const document = await storage.createKnowledgeDocument(docData);
+      if (Array.isArray(embedding) && embedding.length > 0) {
+        await storage.updateKnowledgeDocument(document.id, {
+          embedding: JSON.stringify(embedding),
+          processed: true,
+        });
+      } else {
+        await storage.updateKnowledgeDocument(document.id, { processed: false });
+      }
+      res.status(201).json({ ...document, summary });
+    } catch (error) {
+      console.error('Error ingesting URL:', error);
+      res.status(500).json({ message: 'Failed to ingest URL' });
+    }
+  });
+
   // Conversations routes
   app.get("/api/conversations", async (req, res) => {
     try {
@@ -222,6 +287,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid conversation data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create conversation" });
+    }
+  });
+
+  app.delete("/api/conversations/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteConversation(req.params.id, DEMO_USER_ID);
+      if (!deleted) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete conversation" });
     }
   });
 

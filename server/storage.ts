@@ -30,6 +30,7 @@ export interface IStorage {
   getConversations(userId: string, agentId?: string): Promise<Conversation[]>;
   getConversation(id: string, userId: string): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation): Promise<Conversation>;
+  deleteConversation(id: string, userId: string): Promise<boolean>;
   
   // Messages
   getMessages(conversationId: string): Promise<Message[]>;
@@ -160,6 +161,13 @@ export class DatabaseStorage implements IStorage {
       .values(conversation)
       .returning();
     return newConversation;
+  }
+
+  async deleteConversation(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.userId, userId)));
+    return (result.rowCount || 0) > 0;
   }
 
   async getMessages(conversationId: string): Promise<Message[]> {

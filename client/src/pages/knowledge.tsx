@@ -24,7 +24,7 @@ export default function Knowledge() {
   const [showUpload, setShowUpload] = useState(false);
 
   const { data: agents, isLoading: agentsLoading } = useAgents();
-  
+
   const { data: documents, isLoading: documentsLoading } = useQuery({
     queryKey: ["knowledge", selectedAgentId],
     queryFn: () => selectedAgentId ? api.getKnowledgeDocuments(selectedAgentId) : Promise.resolve([]),
@@ -54,7 +54,7 @@ export default function Knowledge() {
               Manage knowledge documents for your agents
             </p>
           </div>
-          <Button 
+          <Button
             onClick={() => setShowUpload(true)}
             disabled={!selectedAgentId}
             data-testid="button-upload-knowledge"
@@ -66,24 +66,11 @@ export default function Knowledge() {
 
         {/* Filters */}
         <div className="flex gap-4 items-center">
-          <div className="min-w-0 flex-1 max-w-md">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search documents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-documents"
-              />
-            </div>
-          </div>
-          
-          <Select 
-            value={selectedAgentId} 
+          <Select
+            value={selectedAgentId}
             onValueChange={setSelectedAgentId}
           >
-            <SelectTrigger className="w-64" data-testid="select-agent-filter">
+            <SelectTrigger className="w-64 bg-card" data-testid="select-agent-filter">
               <SelectValue placeholder="Select an agent" />
             </SelectTrigger>
             <SelectContent>
@@ -96,6 +83,19 @@ export default function Knowledge() {
               ))}
             </SelectContent>
           </Select>
+          
+          <div className="min-w-0 flex-1 max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search documents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 bg-card"
+                data-testid="input-search-documents"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -106,7 +106,7 @@ export default function Knowledge() {
             <CardTitle>Upload Knowledge Documents</CardTitle>
           </CardHeader>
           <CardContent>
-            <FileUpload 
+            <FileUpload
               agentId={selectedAgentId}
               onUploadComplete={() => setShowUpload(false)}
             />
@@ -142,8 +142,8 @@ export default function Knowledge() {
                 <p className="text-muted-foreground mb-4">
                   No documents found matching "{searchQuery}"
                 </p>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="secondary"
                   onClick={() => setSearchQuery("")}
                   data-testid="button-clear-search"
                 >
@@ -156,7 +156,7 @@ export default function Knowledge() {
                 <p className="text-muted-foreground mb-4">
                   No knowledge documents yet
                 </p>
-                <Button 
+                <Button
                   onClick={() => setShowUpload(true)}
                   data-testid="button-upload-first-document"
                 >
@@ -177,7 +177,7 @@ export default function Knowledge() {
                     <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                       <FileText className="w-6 h-6 text-blue-600" />
                     </div>
-                    
+
                     <div className="min-w-0 flex-1">
                       <h4 className="font-medium truncate" data-testid={`text-document-name-${document.id}`}>
                         {document.filename}
@@ -193,9 +193,9 @@ export default function Knowledge() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2">
-                    <Badge 
+                    <Badge
                       variant={document.processed ? "default" : "secondary"}
                       data-testid={`badge-document-status-${document.id}`}
                     >

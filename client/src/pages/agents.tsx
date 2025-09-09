@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Agents() {
   const [showAgentModal, setShowAgentModal] = useState(false);
+  const [agentToEdit, setAgentToEdit] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const { data: agents, isLoading } = useAgents();
 
@@ -41,7 +42,7 @@ export default function Agents() {
             placeholder="Search agents..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
+            className="pl-9 bg-card"
             data-testid="input-search-agents"
           />
         </div>
@@ -62,7 +63,7 @@ export default function Agents() {
                 No agents found matching "{searchQuery}"
               </p>
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 onClick={() => setSearchQuery("")}
                 data-testid="button-clear-search"
               >
@@ -87,14 +88,19 @@ export default function Agents() {
       ) : (
         <div className="space-y-4">
           {filteredAgents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard 
+              key={agent.id} 
+              agent={agent} 
+              onEdit={(ag) => { setAgentToEdit(ag); setShowAgentModal(true); }}
+            />
           ))}
         </div>
       )}
 
       <AgentCreationModal 
         open={showAgentModal} 
-        onOpenChange={setShowAgentModal} 
+        onOpenChange={(open) => { if(!open) setAgentToEdit(null); setShowAgentModal(open); }} 
+        agentToEdit={agentToEdit || undefined}
       />
     </div>
   );

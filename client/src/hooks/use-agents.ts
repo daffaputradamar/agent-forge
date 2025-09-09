@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import type { Agent, CreateAgentData } from "../types";
-import { useToast } from "./use-toast";
+import { toast } from "sonner";
 
 export function useAgents() {
   return useQuery({
@@ -20,23 +20,19 @@ export function useAgent(id: string) {
 
 export function useCreateAgent() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: (data: CreateAgentData) => api.createAgent(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      toast({
-        title: "Agent created",
+      toast.success("Agent created", {
         description: "Your new agent has been created successfully.",
       });
     },
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: "Failed to create agent. Please try again.",
-        variant: "destructive",
+      toast.error("Error", {
+        description: "Failed to create agent. Please try again."
       });
     },
   });
@@ -44,7 +40,6 @@ export function useCreateAgent() {
 
 export function useUpdateAgent() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<CreateAgentData> }) =>
@@ -52,16 +47,13 @@ export function useUpdateAgent() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["agents", id] });
-      toast({
-        title: "Agent updated",
+      toast.success("Agent updated", {
         description: "Your agent has been updated successfully.",
       });
     },
     onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update agent. Please try again.",
-        variant: "destructive",
+      toast.error("Error", {
+        description: "Failed to update agent. Please try again."
       });
     },
   });
@@ -69,23 +61,19 @@ export function useUpdateAgent() {
 
 export function useDeleteAgent() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: (id: string) => api.deleteAgent(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
-      toast({
-        title: "Agent deleted",
+      toast.success("Agent deleted", {
         description: "Your agent has been deleted successfully.",
       });
     },
     onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete agent. Please try again.",
-        variant: "destructive",
+      toast.error("Error", {
+        description: "Failed to delete agent. Please try again."
       });
     },
   });

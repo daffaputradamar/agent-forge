@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
   const [showAgentModal, setShowAgentModal] = useState(false);
+  const [agentToEdit, setAgentToEdit] = useState<any | null>(null);
   const { data: agents, isLoading } = useAgents();
 
   return (
@@ -71,7 +72,11 @@ export default function Dashboard() {
               ) : (
                 <div className="space-y-4">
                   {agents.slice(0, 3).map((agent) => (
-                    <AgentCard key={agent.id} agent={agent} />
+                    <AgentCard 
+                      key={agent.id} 
+                      agent={agent} 
+                      onEdit={(ag) => { setAgentToEdit(ag); setShowAgentModal(true); }}
+                    />
                   ))}
                 </div>
               )}
@@ -88,7 +93,8 @@ export default function Dashboard() {
 
       <AgentCreationModal 
         open={showAgentModal} 
-        onOpenChange={setShowAgentModal} 
+        onOpenChange={(open) => { if(!open) setAgentToEdit(null); setShowAgentModal(open); }} 
+        agentToEdit={agentToEdit || undefined}
       />
     </div>
   );

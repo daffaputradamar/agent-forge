@@ -3,9 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Plus, Upload, Code } from "lucide-react";
 import { useState } from "react";
 import AgentCreationModal from "@/components/agents/agent-creation-modal";
+import { useLocation } from "wouter";
 
 export default function QuickActions() {
   const [showAgentModal, setShowAgentModal] = useState(false);
+  const [location, navigate] = useLocation();
 
   const actions = [
     {
@@ -18,17 +20,12 @@ export default function QuickActions() {
     {
       title: "Upload Knowledge",
       icon: Upload,
-      onClick: () => {}, // TODO: Implement knowledge upload
+      onClick: () => {
+        navigate("/knowledge");
+      },
       color: "text-blue-600",
       bgColor: "bg-blue-100",
-    },
-    {
-      title: "Get Embed Code",
-      icon: Code,
-      onClick: () => {}, // TODO: Implement embed code generation
-      color: "text-green-600",
-      bgColor: "bg-green-100",
-    },
+    }
   ];
 
   return (

@@ -64,7 +64,7 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
       <Card className="hover:bg-muted/50 transition-colors">
         <CardContent className="p-4">
           <div className="flex items-center space-x-4">
-            <div className={`w-12 h-12 bg-gradient-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
+            <div className={`w-12 h-12 bg-linear-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
               <span className="text-white font-medium text-sm">
                 {getAgentInitials(agent.name)}
               </span>
@@ -81,7 +81,7 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
             
             <div className="flex items-center space-x-2">
               <Badge 
-                className={statusColors[agent.status as keyof typeof statusColors] || statusColors.inactive}
+                className={`${statusColors[agent.status as keyof typeof statusColors] || statusColors.inactive} capitalize`}
                 data-testid={`badge-agent-status-${agent.id}`}
               >
                 {agent.status}
