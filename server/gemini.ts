@@ -34,9 +34,11 @@ export async function generateAgentResponse(
     let systemPromptBase = systemInstructions || "You are an assistant.";
   const strictInstruction = `\n\nImportant: Use the provided knowledge below as the sole source of factual information for answering the user's question. You are allowed and encouraged to summarize, explain, or rephrase the information in your own words to make it clearer, but do NOT add facts, make assumptions, or invent information that is not present in the provided knowledge. If the provided knowledge does not contain enough information to answer the user's question, reply with: \"I don't have enough information to answer that from the provided knowledge.\"`;
 
+    const languageInstruction = `\n\nPlease reply in the same language as the user's messages. If the user switches languages, prefer the language used in the user's most recent message.`;
+
     const systemPrompt = knowledgeContext
-      ? `${systemPromptBase}${strictInstruction}\n\nAdditional Knowledge Context:\n${knowledgeContext}`
-      : `${systemPromptBase}${strictInstruction}`;
+      ? `${systemPromptBase}${strictInstruction}${languageInstruction}\n\nAdditional Knowledge Context:\n${knowledgeContext}`
+      : `${systemPromptBase}${strictInstruction}${languageInstruction}`;
 
     // Convert messages to Gemini format
     const conversationHistory = messages.map(msg => ({

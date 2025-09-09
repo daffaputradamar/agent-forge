@@ -4,7 +4,9 @@ import { Upload, File, X, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -73,6 +75,13 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
         description: `${fileWithStatus.file.name} has been processed and added to the knowledge base.`,
       });
 
+      // Refresh knowledge list for this agent so the UI shows the newly added document
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["knowledge", agentId] });
+      } catch (e) {
+        // ignore invalidate errors
+      }
+
       onUploadComplete?.();
     } catch (error) {
       setFiles(prev => prev.map((f, i) => 
@@ -112,137 +121,140 @@ export default function FileUpload({ agentId, onUploadComplete }: FileUploadProp
 
   return (
     <div className="space-y-4">
-      {/* URL Ingestion */}
-      <Card>
-        <CardContent className="pt-6 space-y-3">
-          <p className="text-sm font-medium">Add from Website URL</p>
-          <div className="flex gap-2">
-            <input
-              type="url"
-              placeholder="https://example.com/article"
-              className="flex-1 border rounded-md px-3 py-2 bg-background text-sm"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              data-testid="input-knowledge-url"
-            />
-            <Button
-              disabled={!url || submittingUrl}
-              onClick={async () => {
-                try {
-                  setSubmittingUrl(true);
-                  const doc = await api.uploadKnowledgeFromUrl(agentId, url);
-                  toast.success("URL processed", { description: doc.filename });
-                  setUrl("");
-                  onUploadComplete?.();
-                } catch (e) {
-                  toast.error("Failed to ingest URL", { description: (e as Error).message });
-                } finally {
-                  setSubmittingUrl(false);
-                }
-              }}
-              data-testid="button-submit-knowledge-url"
-            >
-              {submittingUrl ? "Adding..." : "Add"}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">We'll fetch the page content, extract readable text, summarize, and embed it.</p>
-        </CardContent>
-      </Card>
-      
-      {/* Drop Zone */}
-      <div
-        {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors",
-          isDragActive 
-            ? "border-primary bg-primary/5" 
-            : "border-border hover:border-primary/50"
-        )}
-        data-testid="dropzone-file-upload"
-      >
-        <input {...getInputProps()} />
-        <div className="mb-4">
-          <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
-        </div>
-        <p className="text-sm text-muted-foreground mb-2">
-          {isDragActive 
-            ? "Drop files here..." 
-            : "Drag and drop files here or click to upload"
-          }
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Supports PDF, DOCX, TXT, XLSX (Excel) up to 10MB
-        </p>
-        <Button 
-          type="button" 
-          className="mt-4"
-          data-testid="button-choose-files"
-        >
-          Choose Files
-        </Button>
-      </div>
+      <Tabs defaultValue="url" className="w-full">
+        <TabsList className="w-full grid grid-cols-2 mb-2">
+          <TabsTrigger value="url" data-testid="tab-url">From URL</TabsTrigger>
+          <TabsTrigger value="file" data-testid="tab-file">From File</TabsTrigger>
+        </TabsList>
+        <TabsContent value="url">
+          <Card>
+            <CardContent className="pt-6 space-y-3">
+              <p className="text-sm font-medium">Add from Website URL</p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://example.com/article"
+                  className="flex-1 border rounded-md px-3 py-2 bg-card text-sm"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  data-testid="input-knowledge-url"
+                />
+                <Button
+                  disabled={!url || submittingUrl}
+                  onClick={async () => {
+                    try {
+                      setSubmittingUrl(true);
+                      const doc = await api.uploadKnowledgeFromUrl(agentId, url);
+                      toast.success("URL processed", { description: doc.filename });
+                      setUrl("");
 
-      {/* File List */}
-      {files.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <h4 className="font-medium">Files to upload</h4>
+                      // Refresh knowledge list for this agent so the UI shows the newly added document
+                      try {
+                        await queryClient.invalidateQueries({ queryKey: ["knowledge", agentId] });
+                      } catch (e) {
+                        // ignore invalidate errors
+                      }
+
+                      onUploadComplete?.();
+                    } catch (e) {
+                      toast.error("Failed to ingest URL", { description: (e as Error).message });
+                    } finally {
+                      setSubmittingUrl(false);
+                    }
+                  }}
+                  data-testid="button-submit-knowledge-url"
+                >
+                  {submittingUrl ? "Adding..." : "Add"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">We'll fetch the page content, extract readable text, summarize, and embed it.</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="file">
+          <div
+            {...getRootProps()}
+            className={cn(
+              "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors",
+              isDragActive 
+                ? "border-primary bg-primary/5" 
+                : "border-border hover:border-primary/50"
+            )}
+            data-testid="dropzone-file-upload"
+          >
+            <input {...getInputProps()} />
+            <div className="mb-4">
+              <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+            </div>
+            <p className="text-sm text-muted-foreground mb-2">
+              {isDragActive 
+                ? "Drop files here..." 
+                : "Drag and drop files here or click to upload"
+              }
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Supports PDF, DOCX, TXT, XLSX (Excel) up to 10MB
+            </p>
             <Button 
-              onClick={uploadAll}
-              disabled={!files.some(f => f.status === "pending")}
-              data-testid="button-upload-all"
+              type="button" 
+              className="mt-4"
+              data-testid="button-choose-files"
             >
-              Upload All
+              Choose Files
             </Button>
           </div>
-
-          {files.map((fileWithStatus, index) => (
-            <Card key={index}>
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-3">
-                  <File className="w-8 h-8 text-muted-foreground" />
-                  
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate" data-testid={`text-filename-${index}`}>
-                      {fileWithStatus.file.name}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatFileSize(fileWithStatus.file.size)}
-                    </p>
-                    
-                    {fileWithStatus.status === "uploading" && (
-                      <Progress value={fileWithStatus.progress} className="mt-2" />
-                    )}
-                    
-                    {fileWithStatus.status === "error" && fileWithStatus.error && (
-                      <p className="text-sm text-destructive mt-1">{fileWithStatus.error}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    {fileWithStatus.status === "success" && (
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                    )}
-                    {fileWithStatus.status === "error" && (
-                      <AlertCircle className="w-5 h-5 text-destructive" />
-                    )}
-                    
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeFile(index)}
-                      disabled={fileWithStatus.status === "uploading"}
-                      data-testid={`button-remove-file-${index}`}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+          {files.length > 0 && (
+            <div className="space-y-2 mt-4">
+              <div className="flex justify-between items-center">
+                <h4 className="font-medium">Files to upload</h4>
+                <Button 
+                  onClick={uploadAll}
+                  disabled={!files.some(f => f.status === "pending")}
+                  data-testid="button-upload-all"
+                >
+                  Upload All
+                </Button>
+              </div>
+              {files.map((fileWithStatus, index) => (
+                <Card key={index}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center space-x-3">
+                      <File className="w-8 h-8 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate" data-testid={`text-filename-${index}`}>{fileWithStatus.file.name}</p>
+                        <p className="text-sm text-muted-foreground">{formatFileSize(fileWithStatus.file.size)}</p>
+                        {fileWithStatus.status === "uploading" && (
+                          <Progress value={fileWithStatus.progress} className="mt-2" />
+                        )}
+                        {fileWithStatus.status === "error" && fileWithStatus.error && (
+                          <p className="text-sm text-destructive mt-1">{fileWithStatus.error}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {fileWithStatus.status === "success" && (
+                          <CheckCircle className="w-5 h-5 text-green-600" />
+                        )}
+                        {fileWithStatus.status === "error" && (
+                          <AlertCircle className="w-5 h-5 text-destructive" />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeFile(index)}
+                          disabled={fileWithStatus.status === "uploading"}
+                          data-testid={`button-remove-file-${index}`}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

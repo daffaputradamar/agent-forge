@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { X, Minus, Send } from "lucide-react";
+import { X, Minus, Send, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Agent, Message } from "@/types";
 import { useCreateConversation, useSendMessage, useMessages } from "@/hooks/use-chat";
@@ -44,7 +44,8 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null);
   const [inputValue, setInputValue] = useState("");
   const [isMinimized, setIsMinimized] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
+  const [showAssistantTyping, setShowAssistantTyping] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Simple Markdown -> HTML converter (no external deps).
@@ -121,18 +122,18 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !conversationId || isTyping) return;
+  if (!inputValue.trim() || !conversationId || sendMessage.isPending) return;
 
     const content = inputValue.trim();
     setInputValue("");
 
-    setIsTyping(true);
+    setShowAssistantTyping(true);
     sendMessage.mutate(
       { conversationId, content },
       {
-        onSettled: () => {
-          setIsTyping(false);
-        }
+        onSuccess: () => setShowAssistantTyping(false),
+        onError: () => setShowAssistantTyping(false),
+        onSettled: () => setShowAssistantTyping(false)
       }
     );
   };
@@ -144,15 +145,29 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
     }
   };
 
+  // Escape key to exit maximize
+  useEffect(() => {
+    if (!isMaximized) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMaximized(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isMaximized]);
+
   if (!open) return null;
 
   return (
-    <Card 
+    <Card
       className={cn(
-        "fixed bottom-4 right-4 w-96 shadow-lg z-50 transition-all duration-200",
-        isMinimized && "h-auto"
+        "shadow-lg z-50 transition-all duration-200 bg-card border border-border",
+        isMaximized
+          ? "fixed inset-0 md:left-64 md:inset-y-0 md:right-0 w-auto max-w-none rounded-none flex flex-col" // leave space for sidebar on md+
+          : "fixed bottom-4 right-4 w-96",
+        !isMaximized && isMinimized && "h-auto"
       )}
       data-testid="chat-interface"
+      data-state={isMaximized ? 'maximized' : (isMinimized ? 'minimized' : 'normal')}
     >
       {/* Chat Header */}
       <CardHeader className="p-4 border-b border-border">
@@ -174,11 +189,24 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
             </div>
           </div>
           <div className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIsMaximized(m => !m);
+                if (isMinimized) setIsMinimized(false);
+              }}
+              data-testid="button-maximize-chat"
+              aria-label={isMaximized ? 'Restore chat size' : 'Maximize chat'}
+            >
+              {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
               onClick={() => setIsMinimized(!isMinimized)}
               data-testid="button-minimize-chat"
+              disabled={isMaximized}
             >
               <Minus className="w-4 h-4" />
             </Button>
@@ -197,8 +225,8 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
       {!isMinimized && (
         <>
           {/* Chat Messages */}
-          <CardContent className="p-0">
-            <ScrollArea className="h-96 p-4">
+          <CardContent className={cn("p-0", isMaximized && "flex flex-col flex-1 overflow-hidden")}>  
+            <ScrollArea className={cn("p-4 dark:bg-neutral-900", isMaximized ? "h-[calc(100vh-10rem)] md:h-[calc(100vh-8rem)]" : "h-96")}> 
               {messagesLoading ? (
                 <div className="flex justify-center py-4">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
@@ -229,13 +257,13 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
                         className={cn(
                           "rounded-lg px-3 py-2 max-w-xs break-words",
                           message.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted border border-border"
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "bg-muted/70 dark:bg-neutral-800 border border-border text-foreground"
                         )}
                       >
                         {message.role === "assistant" ? (
                           <div
-                            className="prose text-sm"
+                            className="prose text-sm dark:text-white"
                             data-testid={`text-message-${message.id}`}
                             // render converted HTML from markdown
                             dangerouslySetInnerHTML={{ __html: mdToHtml(message.content) }}
@@ -257,7 +285,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
                       )}
                     </div>
                   ))}
-                  {(isTyping || sendMessage.isPending) && (
+                  {showAssistantTyping && (
                     <div className="flex items-start space-x-2">
                       <div className={`w-6 h-6 bg-linear-to-br ${getGradientClass(agent.id)} rounded-full flex items-center justify-center`}>
                         <span className="text-white text-xs">
@@ -280,7 +308,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
           </CardContent>
 
           {/* Chat Input */}
-          <div className="p-4 border-t border-border">
+          <div className={cn("p-4 border-t border-border", isMaximized && "mt-auto")}> 
             <div className="flex items-center space-x-2">
               <Input
                 placeholder="Type your message..."

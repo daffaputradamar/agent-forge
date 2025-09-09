@@ -24,6 +24,7 @@ export interface IStorage {
   // Knowledge Documents
   getKnowledgeDocuments(agentId: string, userId: string): Promise<KnowledgeDocument[]>;
   createKnowledgeDocument(doc: InsertKnowledgeDocument): Promise<KnowledgeDocument>;
+  deleteKnowledgeDocument(id: string, userId: string): Promise<boolean>;
   updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined>;
   
   // Conversations
@@ -118,6 +119,13 @@ export class DatabaseStorage implements IStorage {
       .values(doc)
       .returning();
     return newDoc;
+  }
+
+  async deleteKnowledgeDocument(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(knowledgeDocuments)
+      .where(and(eq(knowledgeDocuments.id, id), eq(knowledgeDocuments.userId, userId)));
+    return (result.rowCount || 0) > 0;
   }
 
   async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument | undefined> {

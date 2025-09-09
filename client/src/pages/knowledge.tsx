@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Search, Upload, FileText, Clock } from "lucide-react";
+import { Search, Upload, FileText, Clock, Trash, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAgents } from "@/hooks/use-agents";
 import {
@@ -15,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import FileUpload from "@/components/knowledge/file-upload";
+import { useDeleteKnowledgeDocument } from "@/hooks/use-chat";
 import { formatDistanceToNow } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -34,6 +36,11 @@ export default function Knowledge() {
   const filteredDocuments = documents?.filter(doc =>
     doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
   ) || [];
+  const deleteDoc = useDeleteKnowledgeDocument();
+
+  const handleDelete = (docId: string) => {
+    deleteDoc.mutate({ agentId: selectedAgentId, id: docId });
+  };
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
@@ -83,7 +90,7 @@ export default function Knowledge() {
               ))}
             </SelectContent>
           </Select>
-          
+
           <div className="min-w-0 flex-1 max-w-md">
             <div className="relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -201,6 +208,24 @@ export default function Knowledge() {
                     >
                       {document.processed ? "Processed" : "Processing"}
                     </Badge>
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="sm" data-testid={`button-delete-document-${document.id}`}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete document?</AlertDialogTitle>
+                          <AlertDialogDescription>This will remove the document from the knowledge base. This action cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(document.id)}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardContent>

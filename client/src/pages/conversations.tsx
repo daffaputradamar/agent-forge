@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, MessageSquare, Clock, User, Trash } from "lucide-react";
+import { Search, MessageSquare, Clock, User, Trash, Trash2 } from "lucide-react";
 import { useConversations } from "@/hooks/use-chat";
 import { useDeleteConversation } from "@/hooks/use-chat";
 import { useAgents } from "@/hooks/use-agents";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import {
   AlertDialog,
+  AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -37,7 +38,6 @@ export default function Conversations() {
   // Map the sentinel '__all__' to undefined so the hook fetches all conversations.
   const { data: conversations, isLoading: conversationsLoading } = useConversations(selectedAgentId === "__all__" ? undefined : selectedAgentId);
   const deleteMutation = useDeleteConversation();
-  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
 
   // Inline chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -196,19 +196,33 @@ export default function Conversations() {
                     >
                       {conversation.status.replace(/\b\w/g, char => char.toUpperCase())}
                     </Badge>
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="bg-card border border-destructive text-destructive hover:bg-destructive hover:text-white"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeletingConversationId(conversation.id);
-                      }}
-                      aria-label="Delete conversation"
-                      data-testid={`button-delete-conversation-${conversation.id}`}
-                    >
-                      <Trash className="w-4 h-4" />
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="Delete conversation"
+                          data-testid={`button-delete-conversation-${conversation.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete conversation</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action will permanently delete the conversation and cannot be undone. Are you sure you want to continue?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deleteMutation.mutate(conversation.id)}>
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardContent>
@@ -217,29 +231,7 @@ export default function Conversations() {
         </div>
       )}
 
-      {/* Inline Chat UI for quick previews */}
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={!!deletingConversationId} onOpenChange={(open) => { if (!open) setDeletingConversationId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete conversation</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action will permanently delete the conversation and cannot be undone. Are you sure you want to continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              if (deletingConversationId) {
-                deleteMutation.mutate(deletingConversationId);
-              }
-              setDeletingConversationId(null);
-            }}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+  {/* Inline Chat UI for quick previews */}
       <ChatInterface
         agent={chatAgent || (agents && agents[0]) as any}
         open={chatOpen}

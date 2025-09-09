@@ -41,6 +41,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/agents/:agentId/knowledge/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteKnowledgeDocument(req.params.id, DEMO_USER_ID);
+      if (!deleted) return res.status(404).json({ message: "Document not found" });
+      res.status(204).send();
+    } catch (err) {
+      console.error('Failed to delete knowledge document', err);
+      res.status(500).json({ message: 'Failed to delete document' });
+    }
+  });
+
   app.get("/api/agents/:id", async (req, res) => {
     try {
       const agent = await storage.getAgent(req.params.id, DEMO_USER_ID);
@@ -353,9 +364,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const knowledgeContext = await findRelevantKnowledge(content, processedDocs);
 
+      // Merge agent-level tone/response style into the system instructions so
+      // the model adopts the configured personality for this agent.
+      const toneInstr = agent.tone ? `Please adopt a ${agent.tone} tone when replying.` : "";
+      const styleInstr = agent.responseStyle ? `Respond in a ${agent.responseStyle} style.` : "";
+      const combinedSystemInstructions = [agent.systemInstructions, toneInstr, styleInstr].filter(Boolean).join('\n\n');
+
       // Generate agent response
       const response = await generateAgentResponse(
-        agent.systemInstructions,
+        combinedSystemInstructions,
         chatHistory,
         knowledgeContext
       );

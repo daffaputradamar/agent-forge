@@ -56,6 +56,10 @@ export const api = {
     return response.json();
   },
 
+  deleteKnowledgeDocument: async (agentId: string, id: string): Promise<void> => {
+    await apiRequest("DELETE", `/api/agents/${agentId}/knowledge/${id}`);
+  },
+
   // Conversations
   getConversations: async (agentId?: string): Promise<Conversation[]> => {
     const url = agentId ? `/api/conversations?agentId=${agentId}` : "/api/conversations";
