@@ -57,7 +57,7 @@ function Router() {
   );
 }
 
-const clerkPubKey = (import.meta as any).env.VITE_CLERK_PUBLISHABLE_KEY || (window as any).CLERK_PUBLISHABLE_KEY;
+const clerkPubKey = (import.meta as any).env.VITE_CLERK_PUBLISHABLE_KEY || (window as any).CLERK_PUBLISHABLE_KEY || 'pk_test_aW50ZXJuYWwtaHllbmEtMjIuY2xlcmsuYWNjb3VudHMuZGV2JA';
 
 function App() {
   return (
