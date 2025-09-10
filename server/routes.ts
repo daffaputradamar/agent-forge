@@ -237,24 +237,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   `PDF text extracted: length=${fullText.length} chars, pages=${pdf.numPages}`
                 );
               } else {
-                console.info(
-                  `PDF extraction produced empty text (pages=${pdf.numPages}) – falling back to raw content.`
+                console.warn(
+                  `PDF extraction produced empty text (pages=${pdf.numPages}). Rejecting upload.`
                 );
+                return res.status(400).json({ message: "Failed to extract text from PDF; please upload a searchable PDF." });
               }
             } catch (err) {
               // pdfjs-dist can warn about optional canvas polyfills (DOMMatrix/Path2D)
               // Installing `canvas` in the environment can silence those warnings but is optional.
               console.warn(
-                "pdfjs-dist parse failed, falling back to raw text conversion. Tip: install `canvas` to silence DOMMatrix/Path2D warnings:",
+                "pdfjs-dist parse failed:",
                 err
               );
+              return res.status(400).json({ message: "Failed to parse PDF; please upload a searchable PDF or try a different file." });
             }
           }
         } catch (err) {
           console.warn(
-            "Unexpected error parsing PDF, falling back to raw text conversion:",
+            "Unexpected error parsing PDF:",
             err
           );
+          return res.status(400).json({ message: "Failed to parse PDF; please upload a searchable PDF or try a different file." });
         }
 
         // Process the document with OpenAI

@@ -8,40 +8,30 @@ import Dashboard from "@/pages/dashboard";
 import Agents from "@/pages/agents";
 import Knowledge from "@/pages/knowledge";
 import Conversations from "@/pages/conversations";
-import Sidebar from "@/components/layout/sidebar";
-import MobileHeader from "@/components/layout/mobile-header";
 import { useState } from "react";
 import { Toaster } from "./components/ui/sonner";
 import { ThemeProvider } from "./components/theme-provider";
 import SignInPanel from "./components/auth/sign-in";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
+import AppSidebar from "@/components/layout/app-sidebar";
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen">
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* Mobile Header */}
-        <MobileHeader onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
-
-        {/* Page Content */}
-        <div className="flex-1 p-6">
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
+          <div className="flex items-center gap-2 px-4">
+            <SidebarTrigger className="-ml-1" />
+          </div>
+        </header>
+        <div className="flex-1 p-4 pt-0">
           {children}
         </div>
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
