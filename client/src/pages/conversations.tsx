@@ -90,9 +90,9 @@ export default function Conversations() {
               />
             </div>
           </div>
-          
-          <Select 
-            value={selectedAgentId} 
+
+          <Select
+            value={selectedAgentId}
             onValueChange={setSelectedAgentId}
           >
             <SelectTrigger className="w-64 bg-card" data-testid="select-agent-filter">
@@ -131,8 +131,8 @@ export default function Conversations() {
                 <p className="text-muted-foreground mb-4">
                   No conversations found matching "{searchQuery}"
                 </p>
-                <Button 
-                  variant="secondary" 
+                <Button
+                  variant="secondary"
                   onClick={() => setSearchQuery("")}
                   data-testid="button-clear-search"
                 >
@@ -152,7 +152,7 @@ export default function Conversations() {
             )}
           </CardContent>
         </Card>
-        ) : (
+      ) : (
         <div className="space-y-4">
           {filteredConversations.map((conversation) => (
             <Card key={conversation.id} className="hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => {
@@ -169,7 +169,7 @@ export default function Conversations() {
                     <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
                       <MessageSquare className="w-6 h-6 text-primary" />
                     </div>
-                    
+
                     <div className="min-w-0 flex-1">
                       <h4 className="font-medium truncate" data-testid={`text-conversation-title-${conversation.id}`}>
                         {conversation.title || `Conversation with ${getAgentName(conversation.agentId)}`}
@@ -188,9 +188,9 @@ export default function Conversations() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2">
-                    <Badge 
+                    <Badge
                       className={getStatusColor(conversation.status)}
                       data-testid={`badge-conversation-status-${conversation.id}`}
                     >
@@ -217,7 +217,10 @@ export default function Conversations() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => deleteMutation.mutate(conversation.id)}>
+                          <AlertDialogAction onClick={(e) => {
+                            e.stopPropagation();
+                            deleteMutation.mutate(conversation.id);
+                          }}>
                             Delete
                           </AlertDialogAction>
                         </AlertDialogFooter>
@@ -229,15 +232,16 @@ export default function Conversations() {
             </Card>
           ))}
         </div>
-      )}
+      )
+      }
 
-  {/* Inline Chat UI for quick previews */}
+      {/* Inline Chat UI for quick previews */}
       <ChatInterface
         agent={chatAgent || (agents && agents[0]) as any}
         open={chatOpen}
         onOpenChange={(open) => setChatOpen(open)}
         initialConversationId={chatConversationId}
       />
-    </div>
+    </div >
   );
 }

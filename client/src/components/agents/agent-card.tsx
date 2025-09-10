@@ -2,6 +2,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Edit, MessageSquare, Trash2 } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useCreateConversation, useConversations } from "@/hooks/use-chat";
+import { formatDistanceToNow } from "date-fns";
 import type { Agent } from "@/types";
 import { useState } from "react";
 import ChatInterface from "@/components/chat/chat-interface";
@@ -47,7 +50,10 @@ function getGradientClass(agentId: string) {
 
 export default function AgentCard({ agent, onEdit }: AgentCardProps) {
   const [showChat, setShowChat] = useState(false);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const deleteAgent = useDeleteAgent();
+  const conversationsQuery = useConversations(agent.id);
+  const createConversation = useCreateConversation();
 
   const handleDelete = () => {
     deleteAgent.mutate(agent.id);
@@ -97,14 +103,66 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
                   <Edit className="w-4 h-4" />
                 </Button>
                 
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => setShowChat(true)}
-                  data-testid={`button-chat-agent-${agent.id}`}
-                >
-                  <MessageSquare className="w-4 h-4" />
-                </Button>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid={`button-chat-agent-${agent.id}`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent>
+                    <div className="space-y-2">
+                      <Button
+                        variant="ghost"
+                        className="w-full"
+                        onClick={() => {
+                          // create new conversation and open chat with it
+                          createConversation.create(
+                            { agentId: agent.id, title: `` },
+                            {
+                              onSuccess: (c: any) => {
+                                setSelectedConversationId(c.id);
+                                setShowChat(true);
+                              },
+                            }
+                          );
+                        }}
+                      >
+                        New conversation
+                      </Button>
+
+                      <div className="border-t pt-2">
+                        <p className="text-xs text-muted-foreground mb-1">Continue conversation</p>
+                        {conversationsQuery.isLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading...</p>
+                        ) : !conversationsQuery.data || conversationsQuery.data.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No previous conversations</p>
+                        ) : (
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {conversationsQuery.data.map((c: any) => (
+                              <button
+                                key={c.id}
+                                className="w-full text-left p-2 hover:bg-accent rounded-md"
+                                onClick={() => {
+                                  setSelectedConversationId(c.id);
+                                  setShowChat(true);
+                                }}
+                              >
+                                <div className="flex flex-col items-start justify-between">
+                                  <span className="truncate max-w-full">{c.title || 'Conversation'}</span>
+                                  <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(c.createdAt), { addSuffix: true })}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
 
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -138,7 +196,11 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
       <ChatInterface 
         agent={agent}
         open={showChat}
-        onOpenChange={setShowChat}
+        onOpenChange={(o) => {
+          setShowChat(o);
+          if (!o) setSelectedConversationId(null);
+        }}
+        initialConversationId={selectedConversationId}
       />
     </>
   );

@@ -25,6 +25,9 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
+import { SignOutButton, useUser } from "@clerk/clerk-react";
+import UserProfile from "@/components/auth/user-profile";
+import { useState } from "react";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -42,7 +45,21 @@ const navItems = [
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [location] = useLocation();
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
+  const { user } = useUser();
+
+  const getInitials = (name?: string) => {
+    if (!name) return "";
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  // Clerk user may expose different image fields depending on SDK version.
+  const avatarUrl = (user as any)?.profileImageUrl || (user as any)?.imageUrl || (user as any)?.image?.url;
+
+  const [profileOpen, setProfileOpen] = useState(false);
 
   return (
     <aside className={cn(
@@ -89,12 +106,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         {/* User Profile */}
         <div className="p-4 border-t border-border">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-              <span className="text-primary-foreground text-sm font-medium">JD</span>
+            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center overflow-hidden">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={user?.fullName || 'avatar'} className="w-8 h-8 object-cover" />
+              ) : (
+                <span className="text-primary-foreground text-sm font-medium">{getInitials(user?.fullName as string | undefined)}</span>
+              )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">John Doe</p>
-              <p className="text-xs text-muted-foreground truncate">john@company.com</p>
+              <p className="text-sm font-medium truncate">{user?.fullName}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.emailAddresses[0].emailAddress}</p>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -103,7 +124,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <DropdownMenuContent className="w-56" align="start">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuGroup>
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setProfileOpen(true)}>
                     Profile
                   </DropdownMenuItem>
                   <DropdownMenuItem>
@@ -130,13 +151,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   </DropdownMenuSub>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  Log out
-                </DropdownMenuItem>
+                <SignOutButton>
+                  <DropdownMenuItem>
+                    Log out
+                  </DropdownMenuItem>
+                </SignOutButton>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
+  <UserProfile open={profileOpen} onOpenChange={setProfileOpen} />
       </div>
     </aside>
   );

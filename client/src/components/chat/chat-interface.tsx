@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
 
 interface ChatInterfaceProps {
-  agent: Agent;
+  agent?: Agent | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // if provided, the chat will load this conversation id instead of creating a new one
@@ -47,6 +47,10 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
   const [showAssistantTyping, setShowAssistantTyping] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // If no agent is provided, don't render the chat interface. This can
+  // happen on pages that list conversations without selecting an agent.
+  if (!agent) return null;
 
   // Simple Markdown -> HTML converter (no external deps).
   // Supports code blocks (```), inline code (`), bold (**text**), italic (*text*), links [text](url), and line breaks.
@@ -98,7 +102,11 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
       setConversationId(initialConversationId);
     }
 
-  if (open && !conversationId && !initialConversationId && !createConversation.isPending) {
+    // If there's no agent provided, bail out early (prevents errors when
+    // chat component is mounted without an agent, e.g. /conversations page).
+    if (!agent?.id) return;
+
+    if (open && !conversationId && !initialConversationId && !createConversation.isPending) {
       // Create a new conversation when chat opens. Guard against repeated
       // calls by checking the mutation pending state. Do not include the
       // mutation object in deps to avoid identity changes retriggering the effect.
@@ -113,7 +121,7 @@ export default function ChatInterface({ agent, open, onOpenChange, initialConver
     }
     // Intentionally omit createConversation from dependencies to avoid
     // effect retriggers when the mutation object identity changes.
-  }, [open, conversationId, agent.id, initialConversationId]);
+  }, [open, conversationId, agent?.id, initialConversationId]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
