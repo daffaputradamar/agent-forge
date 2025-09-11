@@ -82,19 +82,18 @@ export default function AppSidebar({ ...props }: React.ComponentProps<typeof Sid
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
             <Bot className="h-4 w-4 text-primary-foreground" />
           </div>
-          <h1 className="text-base font-semibold leading-none tracking-tight group-data-[collapsible=icon]:hidden">Agent Builder</h1>
+          <h1 className="text-lg font-semibold leading-none tracking-tight group-data-[collapsible=icon]:hidden">Agent Builder</h1>
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-xs">Navigation</SidebarGroupLabel>
           <SidebarMenu>
             {navItems.map(item => {
               const isActive = location === item.path;
               const Icon = item.icon;
               return (
                 <SidebarMenuItem key={item.path}>
-                  <SidebarMenuButton asChild isActive={isActive} tooltip={item.label} onClick={handleNavClick}>
+                  <SidebarMenuButton asChild isActive={isActive} tooltip={item.label} onClick={handleNavClick} className="py-5">
                     <Link
                       href={item.path}
                       data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g,'-')}`}
@@ -112,7 +111,7 @@ export default function AppSidebar({ ...props }: React.ComponentProps<typeof Sid
       </SidebarContent>
       <SidebarFooter className="border-t border-border">
         <div className="flex items-center gap-3 p-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:gap-2">
-          <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-primary">
+          <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-primary group-data-[collapsible=icon]:hidden">
             {avatarUrl ? (
               <img src={avatarUrl} alt={user?.fullName || 'avatar'} className="h-8 w-8 object-cover" />
             ) : (
