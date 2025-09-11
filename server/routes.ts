@@ -557,6 +557,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Tools CRUD =====
+  app.get('/api/agents/:agentId/tools', requireAuth(), async (req, res) => {
+    try {
+      const userId = await resolveUserId(req);
+      const tools = await storage.getTools(req.params.agentId, userId);
+      res.json(tools);
+    } catch (e) {
+      console.error('List tools failed', e);
+      res.status(500).json({ message: 'Failed to list tools' });
+    }
+  });
+
+  app.post('/api/agents/:agentId/tools', requireAuth(), async (req, res) => {
+    try {
+      const userId = await resolveUserId(req);
+      const agent = await storage.getAgent(req.params.agentId, userId);
+      if (!agent) return res.status(404).json({ message: 'Agent not found' });
+      const { insertToolSchema } = await import('@shared/schema');
+      const parsed = insertToolSchema.parse(req.body);
+      const created = await storage.createTool({ ...parsed, agentId: agent.id, userId });
+      res.status(201).json(created);
+    } catch (e: any) {
+      if (e?.issues) return res.status(400).json({ message: 'Invalid tool data', errors: e.issues });
+      console.error('Create tool failed', e);
+      res.status(500).json({ message: 'Failed to create tool' });
+    }
+  });
+
+  app.put('/api/tools/:id', requireAuth(), async (req, res) => {
+    try {
+      const userId = await resolveUserId(req);
+      // fetch tool to ensure ownership
+      const tool = await storage.getTool(req.params.id, userId);
+      if (!tool) return res.status(404).json({ message: 'Tool not found' });
+      const { insertToolSchema } = await import('@shared/schema');
+      // Partial validation: allow partial update by merging defaults
+      const partialSchema = insertToolSchema.partial();
+      const parsed = partialSchema.parse(req.body);
+      const updated = await storage.updateTool(tool.id, parsed, userId);
+      res.json(updated);
+    } catch (e: any) {
+      if (e?.issues) return res.status(400).json({ message: 'Invalid tool data', errors: e.issues });
+      console.error('Update tool failed', e);
+      res.status(500).json({ message: 'Failed to update tool' });
+    }
+  });
+
+  app.delete('/api/tools/:id', requireAuth(), async (req, res) => {
+    try {
+      const userId = await resolveUserId(req);
+      const deleted = await storage.deleteTool(req.params.id, userId);
+      if (!deleted) return res.status(404).json({ message: 'Tool not found' });
+      res.status(204).send();
+    } catch (e) {
+      console.error('Delete tool failed', e);
+      res.status(500).json({ message: 'Failed to delete tool' });
+    }
+  });
+
+  // Execute a tool (server performs outbound HTTP call)
+  app.post('/api/tools/:id/execute', requireAuth(), async (req, res) => {
+    try {
+      const userId = await resolveUserId(req);
+      const tool = await storage.getTool(req.params.id, userId);
+      if (!tool) return res.status(404).json({ message: 'Tool not found' });
+
+      const params = (req.body && req.body.params) || {};
+      // Build URL & fetch options
+      let url = tool.endpoint;
+      const method = tool.method.toUpperCase();
+      const headers: Record<string, string> = { 'Accept': 'application/json', ...(tool.headers || {}) };
+
+      let body: any = undefined;
+      if (method === 'GET') {
+        // append query params
+        const urlObj = new URL(url, url.startsWith('http') ? undefined : 'http://localhost');
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null) urlObj.searchParams.set(k, String(v));
+        });
+        url = urlObj.toString();
+      } else if (method === 'POST') {
+        headers['Content-Type'] = 'application/json';
+        body = JSON.stringify(params);
+      } else {
+        return res.status(400).json({ message: 'Unsupported method' });
+      }
+
+      // Basic safety: block localhost SSRF except if explicitly allowed (simple heuristic)
+      if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)/i.test(url) && !process.env.ALLOW_INTERNAL_TOOL_CALLS) {
+        return res.status(400).json({ message: 'Calling internal network endpoints is blocked.' });
+      }
+
+      const start = Date.now();
+  console.debug('[tool-exec] calling', { url, method, headers, hasHeaders: !!tool.headers, toolId: tool.id });
+  const resp = await fetch(url, { method, headers, body });
+      const elapsed = Date.now() - start;
+      const contentType = resp.headers.get('content-type') || '';
+      let data: any;
+      try {
+        if (contentType.includes('application/json')) {
+          data = await resp.json();
+        } else {
+          data = await resp.text();
+        }
+      } catch (e) {
+        data = { parseError: true };
+      }
+      res.json({ status: resp.status, elapsedMs: elapsed, data });
+    } catch (e) {
+      console.error('Execute tool failed', e);
+      res.status(500).json({ message: 'Failed to execute tool' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

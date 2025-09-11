@@ -1,5 +1,5 @@
 import { apiRequest } from "./queryClient";
-import type { Agent, KnowledgeDocument, Conversation, Message, Stats, CreateAgentData } from "../types";
+import type { Agent, KnowledgeDocument, Conversation, Message, Stats, CreateAgentData, Tool, CreateToolData } from "../types";
 
 export const api = {
   // Agents
@@ -103,6 +103,27 @@ export const api = {
   // Statistics
   getStats: async (): Promise<Stats> => {
     const response = await apiRequest("GET", "/api/stats");
+    return response.json();
+  },
+
+  // Tools
+  getTools: async (agentId: string): Promise<Tool[]> => {
+    const response = await apiRequest('GET', `/api/agents/${agentId}/tools`);
+    return response.json();
+  },
+  createTool: async (agentId: string, data: CreateToolData): Promise<Tool> => {
+    const response = await apiRequest('POST', `/api/agents/${agentId}/tools`, data);
+    return response.json();
+  },
+  updateTool: async (id: string, data: Partial<CreateToolData>): Promise<Tool> => {
+    const response = await apiRequest('PUT', `/api/tools/${id}`, data);
+    return response.json();
+  },
+  deleteTool: async (id: string): Promise<void> => {
+    await apiRequest('DELETE', `/api/tools/${id}`);
+  },
+  executeTool: async (id: string, params: Record<string, any>): Promise<{ status: number; elapsedMs: number; data: any }> => {
+    const response = await apiRequest('POST', `/api/tools/${id}/execute`, { params });
     return response.json();
   },
 };

@@ -12,7 +12,8 @@ import {
   BarChart3,
   Settings,
   Sun,
-  Moon
+  Moon,
+  Wrench
 } from "lucide-react";
 import { useTheme } from "../theme-provider";
 import {
@@ -49,7 +50,8 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/agents", label: "My Agents", icon: Bot },
   { path: "/knowledge", label: "Knowledge Base", icon: Book },
-  { path: "/conversations", label: "Conversations", icon: MessageSquare }
+  { path: "/tools", label: "Tools", icon: Wrench },
+  { path: "/conversations", label: "Conversations", icon: MessageSquare },
 ];
 
 export default function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {

@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Agents from "@/pages/agents";
 import Knowledge from "@/pages/knowledge";
+import ToolsPage from "@/pages/tools";
 import Conversations from "@/pages/conversations";
 import { useState } from "react";
 import { Toaster } from "./components/ui/sonner";
@@ -41,7 +42,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/agents" component={Agents} />
       <Route path="/knowledge" component={Knowledge} />
-      <Route path="/conversations" component={Conversations} />
+  <Route path="/conversations" component={Conversations} />
+  <Route path="/tools" component={ToolsPage} />
       <Route component={NotFound} />
     </Switch>
   );

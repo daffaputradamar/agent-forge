@@ -68,6 +68,21 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Tools (HTTP API callable tools for agents)
+export const tools = pgTable("tools", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  agentId: varchar("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  method: text("method").notNull(), // GET or POST (future: others)
+  endpoint: text("endpoint").notNull(), // full URL or relative pattern
+  parameters: jsonb("parameters"), // array of { name, type, required, description }
+  headers: jsonb("headers"), // optional static headers (future use)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   agents: many(agents),
@@ -114,6 +129,12 @@ export const messagesRelations = relations(messages, ({ one }) => ({
   }),
 }));
 
+// (Optional) tools relations
+// export const toolsRelations = relations(tools, ({ one }) => ({
+//   agent: one(agents, { fields: [tools.agentId], references: [agents.id] }),
+//   user: one(users, { fields: [tools.userId], references: [users.id] }),
+// }));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -147,6 +168,26 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   createdAt: true,
 });
 
+// Tool parameter definition schema (used inside tool insert)
+export const toolParameterDefinitionSchema = z.object({
+  name: z.string().min(1),
+  type: z.enum(["string", "number", "boolean"]).default("string"),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
+export const insertToolSchema = createInsertSchema(tools).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  userId: true,
+  agentId: true,
+}).extend({
+  method: z.enum(["GET", "POST"]),
+  parameters: z.array(toolParameterDefinitionSchema).optional(),
+  headers: z.record(z.string()).optional(),
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -158,3 +199,5 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type Tool = typeof tools.$inferSelect;
+export type InsertTool = z.infer<typeof insertToolSchema>;

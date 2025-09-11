@@ -1,9 +1,10 @@
 import { 
-  users, agents, knowledgeDocuments, conversations, messages,
+  users, agents, knowledgeDocuments, conversations, messages, tools,
   type User, type InsertUser, type Agent, type InsertAgent,
   type KnowledgeDocument, type InsertKnowledgeDocument,
   type Conversation, type InsertConversation,
-  type Message, type InsertMessage
+  type Message, type InsertMessage,
+  type Tool, type InsertTool
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, count } from "drizzle-orm";
@@ -40,6 +41,13 @@ export interface IStorage {
   // Messages
   getMessages(conversationId: string): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
+
+  // Tools
+  getTools(agentId: string, userId: string): Promise<Tool[]>;
+  getTool(id: string, userId: string): Promise<Tool | undefined>;
+  createTool(tool: InsertTool & { agentId: string; userId: string }): Promise<Tool>;
+  updateTool(id: string, updates: Partial<InsertTool>, userId: string): Promise<Tool | undefined>;
+  deleteTool(id: string, userId: string): Promise<boolean>;
   
   // Statistics
   getAgentStats(userId: string): Promise<{
@@ -238,6 +246,36 @@ export class DatabaseStorage implements IStorage {
       .values(message)
       .returning();
     return newMessage;
+  }
+
+  // Tools
+  async getTools(agentId: string, userId: string): Promise<Tool[]> {
+    return await db.select().from(tools).where(and(eq(tools.agentId, agentId), eq(tools.userId, userId))).orderBy(desc(tools.createdAt));
+  }
+
+  async getTool(id: string, userId: string): Promise<Tool | undefined> {
+    const [tool] = await db.select().from(tools).where(and(eq(tools.id, id), eq(tools.userId, userId)));
+    return tool || undefined;
+  }
+
+  async createTool(tool: InsertTool & { agentId: string; userId: string }): Promise<Tool> {
+    const [t] = await db.insert(tools).values(tool as any).returning();
+    return t;
+  }
+
+  async updateTool(id: string, updates: Partial<InsertTool>, userId: string): Promise<Tool | undefined> {
+    // Build safe update object excluding undefined so we don't accidentally null out columns
+    const safe: Record<string, any> = { updatedAt: new Date() };
+    Object.entries(updates).forEach(([k, v]) => {
+      if (v !== undefined) safe[k] = v;
+    });
+    const [t] = await db.update(tools).set(safe as any).where(and(eq(tools.id, id), eq(tools.userId, userId))).returning();
+    return t || undefined;
+  }
+
+  async deleteTool(id: string, userId: string): Promise<boolean> {
+    const result = await db.delete(tools).where(and(eq(tools.id, id), eq(tools.userId, userId)));
+    return (result.rowCount || 0) > 0;
   }
 
   async getAgentStats(userId: string): Promise<{

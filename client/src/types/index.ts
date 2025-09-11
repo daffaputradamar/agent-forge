@@ -48,6 +48,36 @@ export interface Message {
   createdAt: string;
 }
 
+export interface ToolParameterDefinition {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  required?: boolean;
+  description?: string;
+}
+
+export interface Tool {
+  id: string;
+  agentId: string;
+  userId: string;
+  name: string;
+  description?: string;
+  method: 'GET' | 'POST';
+  endpoint: string;
+  parameters?: ToolParameterDefinition[];
+  headers?: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateToolData {
+  name: string;
+  description?: string;
+  method: 'GET' | 'POST';
+  endpoint: string;
+  parameters?: ToolParameterDefinition[];
+  headers?: Record<string, string>;
+}
+
 export interface Stats {
   totalAgents: number;
   activeConversations: number;
