@@ -512,32 +512,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .filter(Boolean)
           .join("\n\n");
 
-        // Generate agent response
-        const response = await generateAgentResponse(
-          combinedSystemInstructions,
-          chatHistory,
-          knowledgeContext
-        );
+        // ---- Tool Integration ----
+        // Fetch tools for this agent
+        const tools = await storage.getTools(agent.id, userId);
+        let toolRunSummary: any = null;
+        let finalAssistantContent: string;
+        const toolCatalog = tools.map((t) => ({
+          id: t.id,
+          name: t.name,
+          description: t.description || "",
+          method: t.method,
+          endpoint: t.endpoint,
+          parameters: (t.parameters || []) as any[],
+        }));
 
-        // Store agent response
+        // If tools exist, ask model if a tool should be invoked, or if clarification is needed.
+        if (toolCatalog.length > 0) {
+          const decisionPrompt = `You are a planning component for an AI assistant with optional HTTP tools.
+Tools (array):\n${JSON.stringify(toolCatalog, null, 2)}\n
+Conversation (recent):\n${chatHistory.map(m => `${m.role}: ${m.content}`).join('\n')}\n
+Latest user message: ${content}\n
+Task: Decide among three actions BEFORE answering:
+1. "call"  - you have (or can confidently infer) ALL required parameters for a relevant tool; include params.
+2. "ask"   - a tool is clearly relevant BUT at least one required parameter is missing or unclear; list missing names.
+3. "none"  - no tool would help or user asks general question.
+Output ONLY raw JSON: {"action":"call"|"ask"|"none","toolId?":"<id>","params?":{...},"missing?": ["paramA", ...] }.
+Rules:
+- Prefer ONE tool only.
+- Do not hallucinate parameter values; if unsure, use action "ask".
+- If action is "ask" include only missing required parameter names in "missing".
+- If action is "call" you MUST NOT list any missing required param.
+- Never include explanations outside JSON.`;
+          const { runModelPrompt } = await import('./gemini');
+          let decisionRaw = await runModelPrompt(decisionPrompt);
+          const match = decisionRaw.match(/\{[\s\S]*\}/);
+          if (match) decisionRaw = match[0];
+          console.log("Decision Raw: ", decisionRaw);
+          
+          let decision: any = null; try { decision = JSON.parse(decisionRaw); } catch {}
+          if (decision && decision.action === 'ask' && decision.toolId) {
+            const tool = tools.find(t => t.id === decision.toolId);
+            if (tool) {
+              const missingList: string[] = Array.isArray(decision.missing) ? decision.missing : [];
+              const paramMeta = (tool.parameters as any[] || []).filter((p: any) => missingList.includes(p.name));
+              const clarification = `I can use the tool "${tool.name}" to help, but I still need: ${missingList.map(m => `"${m}"`).join(', ')}.${paramMeta.length ? '\n' + paramMeta.map((p: any) => `- ${p.name}${p.required ? ' (required)' : ''}: ${p.description || ''}`).join('\n') : ''}\nPlease provide the missing value${missingList.length>1?'s':''}.`;
+              const assistantMessage = await storage.createMessage({
+                conversationId,
+                role: 'assistant',
+                content: clarification,
+                metadata: { toolClarification: { toolId: tool.id, missing: missingList, knownParams: decision.params || {} } } as any
+              });
+              const meta = (assistantMessage.metadata as any) || {};
+              return res.json({ userMessage, assistantMessage, metadata: { toolClarification: meta.toolClarification } });
+            }
+          }
+          if (decision && decision.action === 'call' && decision.toolId) {
+            const tool = tools.find(t => t.id === decision.toolId);
+            if (tool) {
+              const execParams: Record<string, any> = {};
+              if (decision.params && typeof decision.params === 'object') {
+                for (const [k,v] of Object.entries(decision.params)) {
+                  if (v !== null && v !== undefined && typeof v !== 'object') execParams[k] = v;
+                }
+              }
+              // Execute (inline logic)
+              let url = tool.endpoint;
+              const method = tool.method.toUpperCase();
+              const headers: Record<string,string> = { 'Accept':'application/json', ...(tool.headers||{}) };
+              let body: any = undefined;
+              if (method === 'GET') {
+                const urlObj = new URL(url, url.startsWith('http') ? undefined : 'http://localhost');
+                Object.entries(execParams).forEach(([k,v]) => { if (v!=null) urlObj.searchParams.set(k,String(v)); });
+                url = urlObj.toString();
+              } else if (method === 'POST') {
+                headers['Content-Type'] = 'application/json';
+                body = JSON.stringify(execParams);
+              }
+              if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)/i.test(url) && !process.env.ALLOW_INTERNAL_TOOL_CALLS) {
+                toolRunSummary = { tool: tool.name, skipped: true, reason: 'blocked_internal_endpoint' };
+              } else {
+                try {
+                  const tStart = Date.now();
+                  const toolResp = await fetch(url, { method, headers, body });
+                  const elapsedMs = Date.now() - tStart;
+                  const ctype = toolResp.headers.get('content-type') || '';
+                  let toolData: any; try { toolData = ctype.includes('application/json') ? await toolResp.json() : await toolResp.text(); } catch { toolData = 'unparsable'; }
+                  toolRunSummary = { tool: tool.name, status: toolResp.status, elapsedMs, data: toolData };
+                } catch (err) {
+                  toolRunSummary = { tool: tool.name, error: (err as Error).message };
+                }
+              }
+            }
+          }
+        }
+
+        if (toolRunSummary) {
+          // Use model again to craft final answer using tool result
+          const { runModelPrompt } = await import("./gemini");
+          const answerPrompt = `${combinedSystemInstructions}\n\nA tool was executed. Tool result (JSON):\n${JSON.stringify(
+            toolRunSummary
+          ).slice(
+            0,
+            8000
+          )}\n\nUser message: ${content}\nCompose the best helpful answer. If tool failed, gracefully explain inability.`;
+          const answer = await runModelPrompt(answerPrompt);
+          finalAssistantContent =
+            answer.trim() || "I had trouble forming a response.";
+        } else {
+          // Fall back to existing generation logic
+          const response = await generateAgentResponse(
+            combinedSystemInstructions,
+            chatHistory,
+            knowledgeContext
+          );
+          finalAssistantContent = response.content;
+        }
+
         const assistantMessage = await storage.createMessage({
           conversationId,
           role: "assistant",
-          content: response.content,
+          content: finalAssistantContent,
           metadata: {
-            tokensUsed: response.tokensUsed,
-            responseTime: response.responseTime,
             hasKnowledgeContext: !!knowledgeContext,
+            toolRun: toolRunSummary || undefined,
           },
         });
 
         res.json({
           userMessage,
           assistantMessage,
-          metadata: {
-            tokensUsed: response.tokensUsed,
-            responseTime: response.responseTime,
-          },
+          metadata: { toolRun: toolRunSummary },
         });
       } catch (error) {
         console.error("Error creating message:", error);
@@ -558,105 +662,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Tools CRUD =====
-  app.get('/api/agents/:agentId/tools', requireAuth(), async (req, res) => {
+  app.get("/api/agents/:agentId/tools", requireAuth(), async (req, res) => {
     try {
       const userId = await resolveUserId(req);
       const tools = await storage.getTools(req.params.agentId, userId);
       res.json(tools);
     } catch (e) {
-      console.error('List tools failed', e);
-      res.status(500).json({ message: 'Failed to list tools' });
+      console.error("List tools failed", e);
+      res.status(500).json({ message: "Failed to list tools" });
     }
   });
 
-  app.post('/api/agents/:agentId/tools', requireAuth(), async (req, res) => {
+  app.post("/api/agents/:agentId/tools", requireAuth(), async (req, res) => {
     try {
       const userId = await resolveUserId(req);
       const agent = await storage.getAgent(req.params.agentId, userId);
-      if (!agent) return res.status(404).json({ message: 'Agent not found' });
-      const { insertToolSchema } = await import('@shared/schema');
+      if (!agent) return res.status(404).json({ message: "Agent not found" });
+      const { insertToolSchema } = await import("@shared/schema");
       const parsed = insertToolSchema.parse(req.body);
-      const created = await storage.createTool({ ...parsed, agentId: agent.id, userId });
+      const created = await storage.createTool({
+        ...parsed,
+        agentId: agent.id,
+        userId,
+      });
       res.status(201).json(created);
     } catch (e: any) {
-      if (e?.issues) return res.status(400).json({ message: 'Invalid tool data', errors: e.issues });
-      console.error('Create tool failed', e);
-      res.status(500).json({ message: 'Failed to create tool' });
+      if (e?.issues)
+        return res
+          .status(400)
+          .json({ message: "Invalid tool data", errors: e.issues });
+      console.error("Create tool failed", e);
+      res.status(500).json({ message: "Failed to create tool" });
     }
   });
 
-  app.put('/api/tools/:id', requireAuth(), async (req, res) => {
+  app.put("/api/tools/:id", requireAuth(), async (req, res) => {
     try {
       const userId = await resolveUserId(req);
       // fetch tool to ensure ownership
       const tool = await storage.getTool(req.params.id, userId);
-      if (!tool) return res.status(404).json({ message: 'Tool not found' });
-      const { insertToolSchema } = await import('@shared/schema');
+      if (!tool) return res.status(404).json({ message: "Tool not found" });
+      const { insertToolSchema } = await import("@shared/schema");
       // Partial validation: allow partial update by merging defaults
       const partialSchema = insertToolSchema.partial();
       const parsed = partialSchema.parse(req.body);
       const updated = await storage.updateTool(tool.id, parsed, userId);
       res.json(updated);
     } catch (e: any) {
-      if (e?.issues) return res.status(400).json({ message: 'Invalid tool data', errors: e.issues });
-      console.error('Update tool failed', e);
-      res.status(500).json({ message: 'Failed to update tool' });
+      if (e?.issues)
+        return res
+          .status(400)
+          .json({ message: "Invalid tool data", errors: e.issues });
+      console.error("Update tool failed", e);
+      res.status(500).json({ message: "Failed to update tool" });
     }
   });
 
-  app.delete('/api/tools/:id', requireAuth(), async (req, res) => {
+  app.delete("/api/tools/:id", requireAuth(), async (req, res) => {
     try {
       const userId = await resolveUserId(req);
       const deleted = await storage.deleteTool(req.params.id, userId);
-      if (!deleted) return res.status(404).json({ message: 'Tool not found' });
+      if (!deleted) return res.status(404).json({ message: "Tool not found" });
       res.status(204).send();
     } catch (e) {
-      console.error('Delete tool failed', e);
-      res.status(500).json({ message: 'Failed to delete tool' });
+      console.error("Delete tool failed", e);
+      res.status(500).json({ message: "Failed to delete tool" });
     }
   });
 
   // Execute a tool (server performs outbound HTTP call)
-  app.post('/api/tools/:id/execute', requireAuth(), async (req, res) => {
+  app.post("/api/tools/:id/execute", requireAuth(), async (req, res) => {
     try {
       const userId = await resolveUserId(req);
       const tool = await storage.getTool(req.params.id, userId);
-      if (!tool) return res.status(404).json({ message: 'Tool not found' });
+      if (!tool) return res.status(404).json({ message: "Tool not found" });
 
       const params = (req.body && req.body.params) || {};
       // Build URL & fetch options
       let url = tool.endpoint;
       const method = tool.method.toUpperCase();
-      const headers: Record<string, string> = { 'Accept': 'application/json', ...(tool.headers || {}) };
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        ...(tool.headers || {}),
+      };
 
       let body: any = undefined;
-      if (method === 'GET') {
+      if (method === "GET") {
         // append query params
-        const urlObj = new URL(url, url.startsWith('http') ? undefined : 'http://localhost');
+        const urlObj = new URL(
+          url,
+          url.startsWith("http") ? undefined : "http://localhost"
+        );
         Object.entries(params).forEach(([k, v]) => {
-          if (v !== undefined && v !== null) urlObj.searchParams.set(k, String(v));
+          if (v !== undefined && v !== null)
+            urlObj.searchParams.set(k, String(v));
         });
         url = urlObj.toString();
-      } else if (method === 'POST') {
-        headers['Content-Type'] = 'application/json';
+      } else if (method === "POST") {
+        headers["Content-Type"] = "application/json";
         body = JSON.stringify(params);
       } else {
-        return res.status(400).json({ message: 'Unsupported method' });
+        return res.status(400).json({ message: "Unsupported method" });
       }
 
       // Basic safety: block localhost SSRF except if explicitly allowed (simple heuristic)
-      if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)/i.test(url) && !process.env.ALLOW_INTERNAL_TOOL_CALLS) {
-        return res.status(400).json({ message: 'Calling internal network endpoints is blocked.' });
+      if (
+        /^https?:\/\/(localhost|127\.0\.0\.1|::1)/i.test(url) &&
+        !process.env.ALLOW_INTERNAL_TOOL_CALLS
+      ) {
+        return res
+          .status(400)
+          .json({ message: "Calling internal network endpoints is blocked." });
       }
 
       const start = Date.now();
-  console.debug('[tool-exec] calling', { url, method, headers, hasHeaders: !!tool.headers, toolId: tool.id });
-  const resp = await fetch(url, { method, headers, body });
+      console.debug("[tool-exec] calling", {
+        url,
+        method,
+        headers,
+        hasHeaders: !!tool.headers,
+        toolId: tool.id,
+      });
+      const resp = await fetch(url, { method, headers, body });
       const elapsed = Date.now() - start;
-      const contentType = resp.headers.get('content-type') || '';
+      const contentType = resp.headers.get("content-type") || "";
       let data: any;
       try {
-        if (contentType.includes('application/json')) {
+        if (contentType.includes("application/json")) {
           data = await resp.json();
         } else {
           data = await resp.text();
@@ -666,8 +798,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ status: resp.status, elapsedMs: elapsed, data });
     } catch (e) {
-      console.error('Execute tool failed', e);
-      res.status(500).json({ message: 'Failed to execute tool' });
+      console.error("Execute tool failed", e);
+      res.status(500).json({ message: "Failed to execute tool" });
     }
   });
 
@@ -678,21 +810,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 // NOTE: Must be called after express.json middleware in index.ts
 export function registerEmbedRoutes(app: Express) {
   // Helper: parse allowed origins string
-  function originAllowed(allowed: string | null | undefined, requestOrigin: string | undefined): boolean {
+  function originAllowed(
+    allowed: string | null | undefined,
+    requestOrigin: string | undefined
+  ): boolean {
     console.log("allowed", allowed);
     console.log("requestOrigin", requestOrigin);
 
-    const a = (allowed || '').trim();
+    const a = (allowed || "").trim();
     if (!a) return false;
     // Full wildcard allows any origin (including requests without an Origin header)
-    if (a === '*') return true;
+    if (a === "*") return true;
     // For non-wildcard lists we require an Origin header to validate
     if (!requestOrigin) return false;
-    const list = a.split(',').map(s => s.trim()).filter(Boolean);
-    return list.some(rule => {
-      if (rule.startsWith('.')) {
+    const list = a
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.some((rule) => {
+      if (rule.startsWith(".")) {
         // subdomain wildcard: .example.com matches a.example.com, example.com
-        return requestOrigin.endsWith(rule.replace(/^\./, ''));
+        return requestOrigin.endsWith(rule.replace(/^\./, ""));
       }
       return requestOrigin === rule;
     });
@@ -702,7 +840,9 @@ export function registerEmbedRoutes(app: Express) {
   function extractRequestOrigin(req: any): string | undefined {
     const o = req.headers?.origin as string | undefined;
     if (o) return o;
-    const ref = (req.headers?.referer || req.headers?.referrer) as string | undefined;
+    const ref = (req.headers?.referer || req.headers?.referrer) as
+      | string
+      | undefined;
     if (!ref) return undefined;
     try {
       return new URL(ref).origin;
@@ -712,12 +852,29 @@ export function registerEmbedRoutes(app: Express) {
   }
 
   // Publish / rotate public key (authenticated)
-  app.post('/api/agents/:id/publish', requireAuth(), async (req, res) => {
+  app.post("/api/agents/:id/publish", requireAuth(), async (req, res) => {
     try {
-      const userId = await (async () => { const clerkUserId = getUserId(req); if(!clerkUserId) throw new Error('Missing user'); const existing = await storage.getUserByUsername(clerkUserId); return existing ? existing.id : (await storage.createUser({username: clerkUserId, password:'oauth', email: clerkUserId+"@example.com"})).id; })();
+      const userId = await (async () => {
+        const clerkUserId = getUserId(req);
+        if (!clerkUserId) throw new Error("Missing user");
+        const existing = await storage.getUserByUsername(clerkUserId);
+        return existing
+          ? existing.id
+          : (
+              await storage.createUser({
+                username: clerkUserId,
+                password: "oauth",
+                email: clerkUserId + "@example.com",
+              })
+            ).id;
+      })();
       const agent = await storage.getAgent(req.params.id, userId);
-      if(!agent) return res.status(404).json({message:'Agent not found'});
-      const body = req.body as { allowEmbed?: boolean; embedAllowedOrigins?: string; rotate?: boolean };
+      if (!agent) return res.status(404).json({ message: "Agent not found" });
+      const body = req.body as {
+        allowEmbed?: boolean;
+        embedAllowedOrigins?: string;
+        rotate?: boolean;
+      };
       const allowEmbed = body.allowEmbed ?? true;
       // Determine publicKey: only generate when embedding is enabled and either there's
       // no existing key or caller requested rotation.
@@ -729,103 +886,186 @@ export function registerEmbedRoutes(app: Express) {
           publicKey = nanoid(24);
         }
       }
-      await storage.updateAgent(agent.id, { allowEmbed, embedAllowedOrigins: body.embedAllowedOrigins, publicKey } as any, userId);
+      await storage.updateAgent(
+        agent.id,
+        {
+          allowEmbed,
+          embedAllowedOrigins: body.embedAllowedOrigins,
+          publicKey,
+        } as any,
+        userId
+      );
       res.json({ publicKey, allowEmbed });
     } catch (e) {
-      console.error('Publish agent failed', e);
-      res.status(500).json({ message: 'Failed to publish agent' });
+      console.error("Publish agent failed", e);
+      res.status(500).json({ message: "Failed to publish agent" });
     }
   });
 
   // Create / reuse embedded session
-  app.post('/api/embed/:publicKey/session', async (req, res) => {
+  app.post("/api/embed/:publicKey/session", async (req, res) => {
     try {
       const { publicKey } = req.params;
       const agent = await storage.getAgentByPublicKey(publicKey);
-      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
-  const requestOrigin = extractRequestOrigin(req);
-  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
-        return res.status(403).json({ message: 'Origin not allowed' });
+      if (!agent || !agent.allowEmbed)
+        return res.status(404).json({ message: "Agent not embeddable" });
+      const requestOrigin = extractRequestOrigin(req);
+      if (!originAllowed(agent.embedAllowedOrigins || "", requestOrigin)) {
+        return res.status(403).json({ message: "Origin not allowed" });
       }
       const externalUserId = (req.body && req.body.externalUserId) || null;
       const { sessionId: incomingSession, newConversation } = req.body || {};
       let sessionId = incomingSession;
       let conversation;
-      if(sessionId && !newConversation) {
-        conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
+      if (sessionId && !newConversation) {
+        conversation = await storage.getEmbeddedConversation(
+          agent.id,
+          sessionId
+        );
       }
-      if(!conversation) {
+      if (!conversation) {
         sessionId = nanoid(32);
-        conversation = await storage.createEmbeddedConversation(agent.id, sessionId, requestOrigin, externalUserId);
+        conversation = await storage.createEmbeddedConversation(
+          agent.id,
+          sessionId,
+          requestOrigin,
+          externalUserId
+        );
       }
-  res.json({ sessionId, conversationId: conversation.id, agentName: agent.name, agentAvatar: agent.avatar || null });
+      res.json({
+        sessionId,
+        conversationId: conversation.id,
+        agentName: agent.name,
+        agentAvatar: agent.avatar || null,
+      });
     } catch (e) {
-      console.error('Embedded session error', e);
-      res.status(500).json({ message: 'Failed to create embedded session' });
+      console.error("Embedded session error", e);
+      res.status(500).json({ message: "Failed to create embedded session" });
     }
   });
 
   // Post message (embedded)
-  app.post('/api/embed/:publicKey/messages', async (req, res) => {
+  app.post("/api/embed/:publicKey/messages", async (req, res) => {
     try {
       const { publicKey } = req.params;
       const agent = await storage.getAgentByPublicKey(publicKey);
-      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
-  const requestOrigin = extractRequestOrigin(req);
-  console.log('Embed message request from origin:', requestOrigin);
+      if (!agent || !agent.allowEmbed)
+        return res.status(404).json({ message: "Agent not embeddable" });
+      const requestOrigin = extractRequestOrigin(req);
+      console.log("Embed message request from origin:", requestOrigin);
 
-  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
-        return res.status(403).json({ message: 'Origin not allowed' });
+      if (!originAllowed(agent.embedAllowedOrigins || "", requestOrigin)) {
+        return res.status(403).json({ message: "Origin not allowed" });
       }
       const { sessionId, content } = req.body || {};
-      if(!sessionId || !content) return res.status(400).json({ message: 'sessionId and content required' });
-      const conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
-      if(!conversation) return res.status(404).json({ message: 'Session not found' });
+      if (!sessionId || !content)
+        return res
+          .status(400)
+          .json({ message: "sessionId and content required" });
+      const conversation = await storage.getEmbeddedConversation(
+        agent.id,
+        sessionId
+      );
+      if (!conversation)
+        return res.status(404).json({ message: "Session not found" });
 
       // Persist user message
-      const userMessage = await storage.createMessage({ conversationId: conversation.id, role: 'user', content });
+      const userMessage = await storage.createMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content,
+      });
 
       // Build limited history
       const allMessages = await storage.getMessages(conversation.id);
-      const chatHistory = allMessages.slice(-10).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      const chatHistory = allMessages
+        .slice(-10)
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
 
       // Knowledge retrieval (need agent owner's userId). We stored agent.userId.
-      const knowledgeDocuments = await storage.getKnowledgeDocuments(agent.id, agent.userId);
-      const processedDocs = knowledgeDocuments.filter(d => d.processed && d.embedding).map(d => ({ content: d.content, embedding: d.embedding! }));
-      const knowledgeContext = await findRelevantKnowledge(content, processedDocs);
+      const knowledgeDocuments = await storage.getKnowledgeDocuments(
+        agent.id,
+        agent.userId
+      );
+      const processedDocs = knowledgeDocuments
+        .filter((d) => d.processed && d.embedding)
+        .map((d) => ({ content: d.content, embedding: d.embedding! }));
+      const knowledgeContext = await findRelevantKnowledge(
+        content,
+        processedDocs
+      );
 
-      const toneInstr = agent.tone ? `Please adopt a ${agent.tone} tone when replying.` : '';
-      const styleInstr = agent.responseStyle ? `Respond in a ${agent.responseStyle} style.` : '';
-      const combinedSystemInstructions = [agent.systemInstructions, toneInstr, styleInstr].filter(Boolean).join('\n\n');
-      const response = await generateAgentResponse(combinedSystemInstructions, chatHistory, knowledgeContext);
+      const toneInstr = agent.tone
+        ? `Please adopt a ${agent.tone} tone when replying.`
+        : "";
+      const styleInstr = agent.responseStyle
+        ? `Respond in a ${agent.responseStyle} style.`
+        : "";
+      const combinedSystemInstructions = [
+        agent.systemInstructions,
+        toneInstr,
+        styleInstr,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const response = await generateAgentResponse(
+        combinedSystemInstructions,
+        chatHistory,
+        knowledgeContext
+      );
 
-      const assistantMessage = await storage.createMessage({ conversationId: conversation.id, role: 'assistant', content: response.content, metadata: { tokensUsed: response.tokensUsed, responseTime: response.responseTime, hasKnowledgeContext: !!knowledgeContext } });
-      res.json({ userMessage, assistantMessage, metadata: { tokensUsed: response.tokensUsed, responseTime: response.responseTime } });
+      const assistantMessage = await storage.createMessage({
+        conversationId: conversation.id,
+        role: "assistant",
+        content: response.content,
+        metadata: {
+          tokensUsed: response.tokensUsed,
+          responseTime: response.responseTime,
+          hasKnowledgeContext: !!knowledgeContext,
+        },
+      });
+      res.json({
+        userMessage,
+        assistantMessage,
+        metadata: {
+          tokensUsed: response.tokensUsed,
+          responseTime: response.responseTime,
+        },
+      });
     } catch (e) {
-      console.error('Embedded message error', e);
-      res.status(500).json({ message: 'Failed to process message' });
+      console.error("Embedded message error", e);
+      res.status(500).json({ message: "Failed to process message" });
     }
   });
 
   // Get messages (embedded)
-  app.get('/api/embed/:publicKey/messages', async (req, res) => {
+  app.get("/api/embed/:publicKey/messages", async (req, res) => {
     try {
       const { publicKey } = req.params;
       const agent = await storage.getAgentByPublicKey(publicKey);
-      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
-  const requestOrigin = extractRequestOrigin(req);
-  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
-        return res.status(403).json({ message: 'Origin not allowed' });
+      if (!agent || !agent.allowEmbed)
+        return res.status(404).json({ message: "Agent not embeddable" });
+      const requestOrigin = extractRequestOrigin(req);
+      if (!originAllowed(agent.embedAllowedOrigins || "", requestOrigin)) {
+        return res.status(403).json({ message: "Origin not allowed" });
       }
       const sessionId = req.query.sessionId as string;
-      if(!sessionId) return res.status(400).json({ message: 'sessionId required' });
-      const conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
-      if(!conversation) return res.status(404).json({ message: 'Session not found' });
+      if (!sessionId)
+        return res.status(400).json({ message: "sessionId required" });
+      const conversation = await storage.getEmbeddedConversation(
+        agent.id,
+        sessionId
+      );
+      if (!conversation)
+        return res.status(404).json({ message: "Session not found" });
       const msgs = await storage.getMessages(conversation.id);
       res.json(msgs.slice(-50));
     } catch (e) {
-      console.error('Embedded fetch messages error', e);
-      res.status(500).json({ message: 'Failed to fetch messages' });
+      console.error("Embedded fetch messages error", e);
+      res.status(500).json({ message: "Failed to fetch messages" });
     }
   });
 }

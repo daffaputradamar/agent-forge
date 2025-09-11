@@ -129,6 +129,16 @@ Conversation Context (recent, may be empty):\n${convoSnippet || '(none)'}\n\nLat
   }
 }
 
+// Lightweight helper to issue a single-shot prompt and return raw text.
+// Used for tool decision and post-tool answer generation logic.
+export async function runModelPrompt(prompt: string): Promise<string> {
+  const resp = await ai.models.generateContent({
+    model: GENAI_CHAT_MODEL,
+    contents: [ { role: 'user', parts: [{ text: prompt }] } ]
+  });
+  return resp.text || '';
+}
+
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
     const response = await ai.models.embedContent({
