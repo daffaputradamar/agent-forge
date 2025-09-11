@@ -17,6 +17,7 @@ import * as cheerio from "cheerio";
 import * as XLSX from "xlsx";
 import multer from "multer";
 import { z } from "zod";
+import { readPdf } from "./lib";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -205,59 +206,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
           }
         }
-        try {
-          if (req.file.mimetype === "application/pdf") {
+        if (req.file.mimetype === "application/pdf") {
+          try {
             try {
-              // Use pdfjs-dist directly and pass a Uint8Array (pdfjs expects typed array)
-              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-              // @ts-ignore
-              const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js");
+              let fullText = await readPdf(rawBuffer);
 
-              // Convert Buffer to Uint8Array in a safe way
-              const uint8 = new Uint8Array(
-                rawBuffer.buffer,
-                rawBuffer.byteOffset,
-                rawBuffer.byteLength
-              );
-
-              const loadingTask = pdfjs.getDocument({ data: uint8 });
-              const pdf = await loadingTask.promise;
-              let fullText = "";
-              for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const content = await page.getTextContent();
-                const strings = content.items
-                  .map((it: any) => it.str || "")
-                  .join(" ");
-                fullText += strings + "\n\n";
-              }
               if (fullText.trim()) {
                 processedContent = fullText;
                 console.info(
-                  `PDF text extracted: length=${fullText.length} chars, pages=${pdf.numPages}`
+                  `PDF text extracted: length=${fullText.length} chars`
                 );
               } else {
                 console.warn(
-                  `PDF extraction produced empty text (pages=${pdf.numPages}). Rejecting upload.`
+                  `PDF extraction produced empty text. Rejecting upload.`
                 );
-                return res.status(400).json({ message: "Failed to extract text from PDF; please upload a searchable PDF." });
+                return res.status(400).json({
+                  message:
+                    "Failed to extract text from PDF; please upload a searchable PDF.",
+                });
               }
             } catch (err) {
-              // pdfjs-dist can warn about optional canvas polyfills (DOMMatrix/Path2D)
-              // Installing `canvas` in the environment can silence those warnings but is optional.
-              console.warn(
-                "pdfjs-dist parse failed:",
-                err
-              );
-              return res.status(400).json({ message: "Failed to parse PDF; please upload a searchable PDF or try a different file." });
+              console.warn("pdfreader parse failed:", err);
+              return res.status(400).json({
+                message:
+                  "Failed to parse PDF; please upload a searchable PDF or try a different file.",
+              });
             }
+          } catch (err) {
+            console.warn("Unexpected error parsing PDF:", err);
+            return res.status(400).json({
+              message:
+                "Failed to parse PDF; please upload a searchable PDF or try a different file.",
+            });
           }
-        } catch (err) {
-          console.warn(
-            "Unexpected error parsing PDF:",
-            err
-          );
-          return res.status(400).json({ message: "Failed to parse PDF; please upload a searchable PDF or try a different file." });
         }
 
         // Process the document with OpenAI
@@ -439,24 +420,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // conversation has no title, set a short trimmed title from this
         // message (first 80 chars, trimmed to word boundary).
         try {
-          const conversationRecord = await storage.getConversation(conversationId, userId);
-          if (conversationRecord && (!conversationRecord.title || !conversationRecord.title.trim())) {
+          const conversationRecord = await storage.getConversation(
+            conversationId,
+            userId
+          );
+          if (
+            conversationRecord &&
+            (!conversationRecord.title || !conversationRecord.title.trim())
+          ) {
             // Count messages for this conversation to determine if first
             const msgs = await storage.getMessages(conversationId);
-            const userMessagesCount = msgs.filter(m => m.role === 'user').length;
+            const userMessagesCount = msgs.filter(
+              (m) => m.role === "user"
+            ).length;
             if (userMessagesCount <= 1) {
               const trimmed = (content || "").trim().slice(0, 120);
               // try to cut at last space for nicer titles
-              const lastSpace = trimmed.lastIndexOf(' ');
-              const title = lastSpace > 20 ? trimmed.slice(0, lastSpace) : trimmed;
-              await storage.updateConversation(conversationId, { title }, userId);
+              const lastSpace = trimmed.lastIndexOf(" ");
+              const title =
+                lastSpace > 20 ? trimmed.slice(0, lastSpace) : trimmed;
+              await storage.updateConversation(
+                conversationId,
+                { title },
+                userId
+              );
             }
           }
         } catch (e) {
-          console.warn('Failed to set conversation title from first message', e);
+          console.warn(
+            "Failed to set conversation title from first message",
+            e
+          );
         }
 
-  // Get conversation and agent details
+        // Get conversation and agent details
         const conversation = await storage.getConversation(
           conversationId,
           userId
