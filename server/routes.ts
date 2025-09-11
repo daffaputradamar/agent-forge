@@ -998,43 +998,105 @@ export function registerEmbedRoutes(app: Express) {
         processedDocs
       );
 
-      const toneInstr = agent.tone
-        ? `Please adopt a ${agent.tone} tone when replying.`
-        : "";
-      const styleInstr = agent.responseStyle
-        ? `Respond in a ${agent.responseStyle} style.`
-        : "";
-      const combinedSystemInstructions = [
-        agent.systemInstructions,
-        toneInstr,
-        styleInstr,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-      const response = await generateAgentResponse(
-        combinedSystemInstructions,
-        chatHistory,
-        knowledgeContext
-      );
+      const toneInstr = agent.tone ? `Please adopt a ${agent.tone} tone when replying.` : "";
+      const styleInstr = agent.responseStyle ? `Respond in a ${agent.responseStyle} style.` : "";
+      const combinedSystemInstructions = [agent.systemInstructions, toneInstr, styleInstr].filter(Boolean).join("\n\n");
+
+      // Tool integration (embedded)
+      const tools = await storage.getTools(agent.id, agent.userId);
+      let toolRunSummary: any = null;
+      let finalAssistantContent: string;
+      const toolCatalog = tools.map(t => ({
+        id: t.id,
+        name: t.name,
+        description: t.description || '',
+        method: t.method,
+        endpoint: t.endpoint,
+        parameters: (t.parameters || []) as any[]
+      }));
+
+      if (toolCatalog.length > 0) {
+        const decisionPrompt = `You are a planning component for an AI assistant with optional HTTP tools.
+Tools (array):\n${JSON.stringify(toolCatalog, null, 2)}\n
+Recent conversation:\n${chatHistory.map(m=>`${m.role}: ${m.content}`).join('\n')}\n
+Latest user message: ${content}\n
+Decide ONE action before answering:
+ - call: have all required params for a relevant tool
+ - ask: tool is relevant but missing required params (list them)
+ - none: no tool helpful
+Return ONLY JSON: {"action":"call"|"ask"|"none","toolId?":"id","params?":{...},"missing?": ["..."] }
+No extra text.`;
+        const { runModelPrompt } = await import('./gemini');
+        let decisionRaw = await runModelPrompt(decisionPrompt);
+        const match = decisionRaw.match(/\{[\s\S]*\}/);
+        if (match) decisionRaw = match[0];
+        let decision: any = null; try { decision = JSON.parse(decisionRaw); } catch {}
+        if (decision && decision.action === 'ask' && decision.toolId) {
+          const tool = tools.find(t => t.id === decision.toolId);
+          if (tool) {
+            const missingList: string[] = Array.isArray(decision.missing) ? decision.missing : [];
+            const paramMeta = (tool.parameters as any[] || []).filter((p: any) => missingList.includes(p.name));
+            const clarification = `I can use the tool "${tool.name}" but I still need: ${missingList.map(m=>`"${m}"`).join(', ')}.${paramMeta.length? '\n'+ paramMeta.map((p:any)=>`- ${p.name}${p.required?' (required)':''}: ${p.description||''}`).join('\n'):''}\nPlease provide the missing value${missingList.length>1?'s':''}.`;
+            const assistantMessage = await storage.createMessage({ conversationId: conversation.id, role: 'assistant', content: clarification, metadata: { toolClarification: { toolId: tool.id, missing: missingList, knownParams: decision.params || {} } } as any });
+            return res.json({ userMessage, assistantMessage, metadata: { toolClarification: (assistantMessage.metadata as any).toolClarification } });
+          }
+        }
+        if (decision && decision.action === 'call' && decision.toolId) {
+          const tool = tools.find(t => t.id === decision.toolId);
+          if (tool) {
+            const execParams: Record<string, any> = {};
+            if (decision.params && typeof decision.params === 'object') {
+              for (const [k,v] of Object.entries(decision.params)) {
+                if (v !== null && v !== undefined && typeof v !== 'object') execParams[k] = v;
+              }
+            }
+            let url = tool.endpoint;
+            const method = tool.method.toUpperCase();
+            const headers: Record<string,string> = { 'Accept':'application/json', ...(tool.headers||{}) };
+            let body: any = undefined;
+            if (method === 'GET') {
+              const urlObj = new URL(url, url.startsWith('http') ? undefined : 'http://localhost');
+              Object.entries(execParams).forEach(([k,v])=>{ if(v!=null) urlObj.searchParams.set(k,String(v)); });
+              url = urlObj.toString();
+            } else if (method === 'POST') {
+              headers['Content-Type'] = 'application/json';
+              body = JSON.stringify(execParams);
+            }
+            if (/^https?:\/\/(localhost|127\.0\.0\.1|::1)/i.test(url) && !process.env.ALLOW_INTERNAL_TOOL_CALLS) {
+              toolRunSummary = { tool: tool.name, skipped: true, reason: 'blocked_internal_endpoint' };
+            } else {
+              try {
+                const tStart = Date.now();
+                const toolResp = await fetch(url, { method, headers, body });
+                const elapsedMs = Date.now() - tStart;
+                const ctype = toolResp.headers.get('content-type') || '';
+                let toolData: any; try { toolData = ctype.includes('application/json') ? await toolResp.json() : await toolResp.text(); } catch { toolData='unparsable'; }
+                toolRunSummary = { tool: tool.name, status: toolResp.status, elapsedMs, data: toolData };
+              } catch(err) {
+                toolRunSummary = { tool: tool.name, error: (err as Error).message };
+              }
+            }
+          }
+        }
+      }
+
+      if (toolRunSummary) {
+        const { runModelPrompt } = await import('./gemini');
+        const answerPrompt = `${combinedSystemInstructions}\n\nTool result (JSON):\n${JSON.stringify(toolRunSummary).slice(0,8000)}\n\nUser message: ${content}\nProvide the best helpful answer.`;
+        const answer = await runModelPrompt(answerPrompt);
+        finalAssistantContent = answer.trim() || 'I had trouble forming a response.';
+      } else {
+        const response = await generateAgentResponse(combinedSystemInstructions, chatHistory, knowledgeContext);
+        finalAssistantContent = response.content;
+      }
 
       const assistantMessage = await storage.createMessage({
         conversationId: conversation.id,
-        role: "assistant",
-        content: response.content,
-        metadata: {
-          tokensUsed: response.tokensUsed,
-          responseTime: response.responseTime,
-          hasKnowledgeContext: !!knowledgeContext,
-        },
+        role: 'assistant',
+        content: finalAssistantContent,
+        metadata: { hasKnowledgeContext: !!knowledgeContext, toolRun: toolRunSummary || undefined }
       });
-      res.json({
-        userMessage,
-        assistantMessage,
-        metadata: {
-          tokensUsed: response.tokensUsed,
-          responseTime: response.responseTime,
-        },
-      });
+      res.json({ userMessage, assistantMessage, metadata: { toolRun: toolRunSummary } });
     } catch (e) {
       console.error("Embedded message error", e);
       res.status(500).json({ message: "Failed to process message" });
