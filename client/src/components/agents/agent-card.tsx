@@ -1,12 +1,13 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Edit, MessageSquare, Trash2 } from "lucide-react";
+import { Edit, MessageSquare, Trash2, Share2 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useCreateConversation, useConversations } from "@/hooks/use-chat";
 import { formatDistanceToNow } from "date-fns";
 import type { Agent } from "@/types";
 import { useState } from "react";
+import AgentDeployModal from "./agent-deploy-modal";
 import ChatInterface from "@/components/chat/chat-interface";
 import { useDeleteAgent } from "@/hooks/use-agents";
 import {
@@ -51,6 +52,7 @@ function getGradientClass(agentId: string) {
 export default function AgentCard({ agent, onEdit }: AgentCardProps) {
   const [showChat, setShowChat] = useState(false);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [showDeploy, setShowDeploy] = useState(false);
   const deleteAgent = useDeleteAgent();
   const conversationsQuery = useConversations(agent.id);
   const createConversation = useCreateConversation();
@@ -187,6 +189,15 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowDeploy(true)}
+                  title="Deploy / Embed"
+                  data-testid={`button-deploy-agent-${agent.id}`}
+                >
+                  <Share2 className="w-4 h-4" />
+                </Button>
               </div>
             </div>
           </div>
@@ -202,6 +213,7 @@ export default function AgentCard({ agent, onEdit }: AgentCardProps) {
         }}
         initialConversationId={selectedConversationId}
       />
+  <AgentDeployModal agent={agent} open={showDeploy} onOpenChange={setShowDeploy} />
     </>
   );
 }

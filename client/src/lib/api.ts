@@ -23,6 +23,12 @@ export const api = {
     return response.json();
   },
 
+  // Publish / enable embedding or rotate key
+  publishAgent: async (id: string, data: { allowEmbed?: boolean; embedAllowedOrigins?: string; rotate?: boolean }): Promise<{ publicKey: string | null; allowEmbed: boolean }> => {
+    const response = await apiRequest("POST", `/api/agents/${id}/publish`, data);
+    return response.json();
+  },
+
   deleteAgent: async (id: string): Promise<void> => {
     await apiRequest("DELETE", `/api/agents/${id}`);
   },

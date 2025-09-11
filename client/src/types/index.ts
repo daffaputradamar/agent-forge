@@ -9,6 +9,10 @@ export interface Agent {
   systemInstructions: string;
   status: string;
   avatar?: string;
+  // Embed / deployment fields
+  allowEmbed?: boolean;
+  publicKey?: string | null;
+  embedAllowedOrigins?: string | null; // comma separated list or *
   createdAt: string;
   updatedAt: string;
 }
@@ -58,4 +62,7 @@ export interface CreateAgentData {
   tone: string;
   responseStyle: string;
   systemInstructions: string;
+  // Optional on create (typically managed later)
+  allowEmbed?: boolean;
+  embedAllowedOrigins?: string;
 }

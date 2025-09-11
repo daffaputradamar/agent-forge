@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Agent Chat</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --muted: #f8fafc;
+        --border: #e6e9ef;
+        --text: #0f1724;
+        --primary: #4f46e5;
+        --primary-foreground: #ffffff;
+
+        --assistant-bubble: #ffffff;
+        --assistant-border: #e5e7eb;
+        --user-bubble: #f97316; /* oranye */
+        --user-text: #fff;
+      }
+      [data-theme="dark"] {
+        --bg: #0b1220;
+        --muted: #0f1724;
+        --border: #1f2937;
+        --text: #e6eef8;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+          "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      /* Container */
+      .container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+      }
+
+      /* Header */
+      .chat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(
+          90deg,
+          #fb923c,
+          #ea580c
+        ); /* orange gradient */
+        color: white;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      }
+
+      .chat-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-weight: 600;
+        font-size: 13px;
+        background: linear-gradient(
+          135deg,
+          #6366f1,
+          #0ea5e9
+        ); /* blue/purple gradient */
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+      }
+
+      .agent-name {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .agent-status {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+      .close-btn {
+        background: transparent;
+        border: 0;
+        color: inherit;
+        font-size: 20px;
+        cursor: pointer;
+      }
+
+      /* Messages */
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        background: var(--muted);
+      }
+      .message {
+        display: flex;
+        flex-direction: column;
+        max-width: 75%;
+      }
+      .message.assistant {
+        align-items: flex-start;
+      }
+      .message.assistant .bubble {
+        background: var(--assistant-bubble);
+        border: 1px solid var(--assistant-border);
+        color: #111827;
+        border-radius: 12px 12px 12px 4px;
+      }
+      .message.user {
+        align-self: flex-end;
+        align-items: flex-end;
+      }
+      .message.user .bubble {
+        background: var(--user-bubble);
+        color: var(--user-text);
+        border-radius: 12px 12px 4px 12px;
+      }
+      .bubble {
+        padding: 12px 14px;
+        font-size: 14px;
+        line-height: 1.5;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+        animation: fadeIn 0.25s ease-out;
+      }
+      .meta {
+        font-size: 11px;
+        opacity: 0.7;
+        margin-top: 4px;
+      }
+
+      /* Input area */
+      .input-area {
+        display: flex;
+        padding: 12px;
+        border-top: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(6px);
+      }
+      .input {
+        flex: 1;
+        border: none;
+        border-radius: 20px;
+        padding: 10px 14px;
+        background: #f3f4f6;
+        font-size: 14px;
+        color: inherit;
+      }
+      .input:focus {
+        outline: 2px solid #6366f1;
+      }
+      .send-btn {
+        background: #f97316;
+        color: white;
+        border: none;
+        padding: 12px 12px 8px 12px;
+        border-radius: 30%;
+        margin-left: 8px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .send-btn:hover {
+        background: #ea580c;
+      }
+
+      /* Typing dots */
+      .typing {
+        display: inline-block;
+        width: 36px;
+      }
+      .dots > span {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        background: rgba(0, 0, 0, 0.4);
+        border-radius: 999px;
+        margin: 0 2px;
+        animation: dot 1s infinite;
+      }
+      .dots > span:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .dots > span:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+
+      @keyframes dot {
+        0% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-6px);
+        }
+        100% {
+          transform: translateY(0);
+        }
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Scrollbar modern */
+      .messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      .messages::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .messages::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container" role="application">
+      <div class="chat-header">
+        <div class="chat-header-left">
+          <div id="avatar" class="avatar"></div>
+          <div>
+            <div id="agentName" class="agent-name">Agent</div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                margin-top: 2px;
+              "
+            >
+              <span
+                style="
+                  width: 6px;
+                  height: 6px;
+                  border-radius: 50%;
+                  background: #10b981;
+                  display: inline-block;
+                "
+              ></span>
+              <span class="agent-status" id="agentStatus">Online</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button id="newChatBtn" class="close-btn" title="New conversation" aria-label="New conversation" style="font-size:14px;">↺</button>
+          <button id="closeBtn" class="close-btn" aria-label="Close">×</button>
+        </div>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="chatForm" class="input-area">
+        <input
+          id="chatInput"
+          class="input"
+          autocomplete="off"
+          placeholder="Type a message"
+        />
+        <button id="sendBtn" class="send-btn" type="submit">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="lucide lucide-send"
+            style="width: 1.2rem; height: 1.2rem"
+          >
+            <path
+              d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"
+            ></path>
+            <path d="m21.854 2.147-10.94 10.939"></path>
+          </svg>
+        </button>
+      </form>
+    </div>
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const publicKey = params.get("key") || "";
+        const theme = params.get("theme") || "light";
+        if (publicKey && (theme === "dark" || theme === "light")) {
+          document.documentElement.setAttribute("data-theme", theme);
+        }
+
+        let sessionId =
+          localStorage.getItem("agentforge_session_" + publicKey) || null;
+        const messagesEl = document.getElementById("messages");
+        const form = document.getElementById("chatForm");
+        const input = document.getElementById("chatInput");
+        const avatarEl = document.getElementById("avatar");
+        const nameEl = document.getElementById("agentName");
+  const closeBtn = document.getElementById("closeBtn");
+  const newChatBtn = document.getElementById("newChatBtn");
+        let conversationId = null;
+        let agentNameCache = null;
+        let typing = false;
+
+        function escapeHtml(str) {
+          return (str || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        }
+        function mdToHtml(s) {
+          if (!s) return "";
+          s = escapeHtml(s);
+          const bt = String.fromCharCode(96); // backtick char
+
+          // fenced code blocks
+          let out = "";
+          let idx = 0;
+          while (true) {
+            const start = s.indexOf(bt + bt + bt, idx);
+            if (start === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            out += s.slice(idx, start);
+            const end = s.indexOf(bt + bt + bt, start + 3);
+            if (end === -1) {
+              out += s.slice(start);
+              break;
+            }
+            const code = s.slice(start + 3, end);
+            out += "<pre><code>" + escapeHtml(code) + "</code></pre>";
+            idx = end + 3;
+          }
+          s = out;
+
+          // inline code
+          out = "";
+          idx = 0;
+          while (true) {
+            const a = s.indexOf(bt, idx);
+            if (a === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const b = s.indexOf(bt, a + 1);
+            if (b === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            out += s.slice(idx, a);
+            const code = s.slice(a + 1, b);
+            out += "<code>" + escapeHtml(code) + "</code>";
+            idx = b + 1;
+          }
+          s = out;
+
+          // links
+          out = "";
+          idx = 0;
+          while (true) {
+            const a = s.indexOf("[", idx);
+            if (a === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const b = s.indexOf("]", a + 1);
+            if (b === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const c = s.indexOf("(", b + 1);
+            if (c !== b + 1) {
+              out += s.slice(idx, b + 1);
+              idx = b + 1;
+              continue;
+            }
+            const d = s.indexOf(")", c + 1);
+            if (d === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const text = s.slice(a + 1, b);
+            const url = s.slice(c + 1, d);
+            out += s.slice(idx, a);
+            out +=
+              '<a href="' +
+              escapeHtml(url) +
+              '" target="_blank" rel="noopener noreferrer">' +
+              escapeHtml(text) +
+              "</a>";
+            idx = d + 1;
+          }
+          s = out;
+
+          // bold
+          out = "";
+          idx = 0;
+          while (true) {
+            const a = s.indexOf("**", idx);
+            if (a === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const b = s.indexOf("**", a + 2);
+            if (b === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            out += s.slice(idx, a);
+            out += "<strong>" + s.slice(a + 2, b) + "</strong>";
+            idx = b + 2;
+          }
+          s = out;
+
+          // italic
+          out = "";
+          idx = 0;
+          while (true) {
+            const a = s.indexOf("*", idx);
+            if (a === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            const b = s.indexOf("*", a + 1);
+            if (b === -1) {
+              out += s.slice(idx);
+              break;
+            }
+            if (s[a + 1] === "*") {
+              out += s.slice(idx, a + 2);
+              idx = a + 2;
+              continue;
+            }
+            out += s.slice(idx, a);
+            out += "<em>" + s.slice(a + 1, b) + "</em>";
+            idx = b + 1;
+          }
+          s = out;
+
+          return s.replace(/\n/g, "<br/>");
+        }
+
+        function initials(name) {
+          return (name || "A")
+            .split(/\s+/)
+            .map((p) => p[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase();
+        }
+
+        async function ensureSession(opts) {
+          const resp = await fetch("/api/embed/" + publicKey + "/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: opts && opts.reset ? null : sessionId, newConversation: opts && opts.reset ? true : false }),
+          });
+          if (!resp.ok) {
+            messagesEl.innerHTML =
+              '<p style="color:#ef4444">Failed to start session</p>';
+            return;
+          }
+          const data = await resp.json();
+          sessionId = data.sessionId;
+          conversationId = data.conversationId;
+          if (data.agentName) {
+            agentNameCache = data.agentName;
+            nameEl.textContent = data.agentName;
+            avatarEl.textContent = initials(data.agentName);
+            if (data.agentAvatar) {
+              avatarEl.style.backgroundImage = "url(" + data.agentAvatar + ")";
+              avatarEl.style.backgroundSize = "cover";
+              avatarEl.style.backgroundPosition = "center";
+            }
+          }
+          localStorage.setItem("agentforge_session_" + publicKey, sessionId);
+        }
+
+        function renderMessages(msgs) {
+          messagesEl.innerHTML = "";
+          if (!Array.isArray(msgs) || msgs.length === 0) {
+            const p = document.createElement("div");
+            p.className = "meta";
+            p.textContent = "No messages yet.";
+            messagesEl.appendChild(p);
+            return;
+          }
+          msgs.forEach(function (m) {
+            const wrap = document.createElement("div");
+            wrap.className =
+              "message " + (m.role === "user" ? "user" : "assistant");
+
+            const bubble = document.createElement("div");
+            bubble.className = "bubble";
+            bubble.innerHTML = mdToHtml(m.content || "");
+            wrap.appendChild(bubble);
+
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            const created = m.createdAt || m.created_at || null;
+            try {
+              meta.textContent = created
+                ? new Date(created).toLocaleString()
+                : "";
+            } catch {
+              meta.textContent = "";
+            }
+            wrap.appendChild(meta);
+
+            messagesEl.appendChild(wrap);
+          });
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        async function loadMessages() {
+          if (!sessionId) return;
+          const resp = await fetch(
+            "/api/embed/" +
+              publicKey +
+              "/messages?sessionId=" +
+              encodeURIComponent(sessionId)
+          );
+          if (!resp.ok) return;
+          const msgs = await resp.json();
+          renderMessages(msgs);
+        }
+
+        async function send(content) {
+          const trimmed = content.trim();
+          if (!trimmed) return;
+
+          // Optimistic user message
+          const userWrap = document.createElement("div");
+          userWrap.className = "message user temp-user";
+          const userBubble = document.createElement("div");
+          userBubble.className = "bubble";
+          userBubble.textContent = trimmed; // user text no markdown parse
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = new Date().toLocaleTimeString();
+          userWrap.appendChild(userBubble);
+          userWrap.appendChild(meta);
+          messagesEl.appendChild(userWrap);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+          // Assistant typing placeholder (optimistic)
+          const typingWrap = document.createElement("div");
+          typingWrap.className = "message assistant temp-assistant";
+          typingWrap.innerHTML =
+            '<div class="bubble"><span class="dots"><span></span><span></span><span></span></span></div>';
+          messagesEl.appendChild(typingWrap);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+          try {
+            const resp = await fetch("/api/embed/" + publicKey + "/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId, content: trimmed }),
+            });
+            if (!resp.ok) {
+              userBubble.style.opacity = "0.6";
+              userBubble.style.border = "1px solid #dc2626";
+              const errMeta = document.createElement("div");
+              errMeta.className = "meta";
+              errMeta.style.color = "#dc2626";
+              errMeta.textContent = "Send failed (" + resp.status + ")";
+              userWrap.appendChild(errMeta);
+            }
+          } catch (e) {
+            userBubble.style.opacity = "0.6";
+            userBubble.style.border = "1px solid #dc2626";
+            const errMeta = document.createElement("div");
+            errMeta.className = "meta";
+            errMeta.style.color = "#dc2626";
+            errMeta.textContent = "Network error";
+            userWrap.appendChild(errMeta);
+          }
+          // Refresh full list (will replace optimistic nodes)
+          await loadMessages();
+        }
+
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const v = input.value;
+          input.value = "";
+          await send(v);
+        });
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            form.requestSubmit();
+          }
+        });
+
+        closeBtn.addEventListener("click", () => {
+          parent.postMessage({ type: "agentforge:close" }, "*");
+        });
+
+        (async () => { await ensureSession(); await loadMessages(); })();
+
+        newChatBtn.addEventListener('click', async () => {
+          // ask for confirmation before starting a new conversation
+          const ok = window.confirm(
+            'Start a new conversation? This will clear the current chat history for this embedded session.'
+          );
+          if (!ok) return;
+
+          // force new conversation
+          sessionId = null;
+          conversationId = null;
+          await ensureSession({ reset: true });
+          messagesEl.innerHTML = '';
+          const p = document.createElement('div');
+          p.className = 'meta';
+          p.textContent = 'New conversation started.';
+          messagesEl.appendChild(p);
+        });
+
+        window.addEventListener("message", (ev) => {
+          if (ev.data && ev.data.type === "agentforge:reload") {
+            loadMessages();
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

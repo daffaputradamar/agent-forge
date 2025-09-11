@@ -78,3 +78,18 @@ export function useDeleteAgent() {
     },
   });
 }
+
+export function usePublishAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+  mutationFn: ({ id, data }: { id: string; data: { allowEmbed?: boolean; embedAllowedOrigins?: string; rotate?: boolean } }) => api.publishAgent(id, data as any),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      queryClient.invalidateQueries({ queryKey: ["agents", id] });
+      toast.success("Deployment updated", { description: "Embed settings saved." });
+    },
+    onError: () => {
+      toast.error("Error", { description: "Failed to update embed settings." });
+    }
+  });
+}

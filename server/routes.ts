@@ -17,6 +17,7 @@ import * as cheerio from "cheerio";
 import * as XLSX from "xlsx";
 import multer from "multer";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { readPdf } from "./lib";
 
 const upload = multer({
@@ -558,4 +559,159 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+// Embed API (public, outside registerRoutes for clarity could be placed inside if preferred)
+// NOTE: Must be called after express.json middleware in index.ts
+export function registerEmbedRoutes(app: Express) {
+  // Helper: parse allowed origins string
+  function originAllowed(allowed: string | null | undefined, requestOrigin: string | undefined): boolean {
+    console.log("allowed", allowed);
+    console.log("requestOrigin", requestOrigin);
+
+    const a = (allowed || '').trim();
+    if (!a) return false;
+    // Full wildcard allows any origin (including requests without an Origin header)
+    if (a === '*') return true;
+    // For non-wildcard lists we require an Origin header to validate
+    if (!requestOrigin) return false;
+    const list = a.split(',').map(s => s.trim()).filter(Boolean);
+    return list.some(rule => {
+      if (rule.startsWith('.')) {
+        // subdomain wildcard: .example.com matches a.example.com, example.com
+        return requestOrigin.endsWith(rule.replace(/^\./, ''));
+      }
+      return requestOrigin === rule;
+    });
+  }
+
+  // Helper: derive request origin - prefer Origin header, fall back to Referer
+  function extractRequestOrigin(req: any): string | undefined {
+    const o = req.headers?.origin as string | undefined;
+    if (o) return o;
+    const ref = (req.headers?.referer || req.headers?.referrer) as string | undefined;
+    if (!ref) return undefined;
+    try {
+      return new URL(ref).origin;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  // Publish / rotate public key (authenticated)
+  app.post('/api/agents/:id/publish', requireAuth(), async (req, res) => {
+    try {
+      const userId = await (async () => { const clerkUserId = getUserId(req); if(!clerkUserId) throw new Error('Missing user'); const existing = await storage.getUserByUsername(clerkUserId); return existing ? existing.id : (await storage.createUser({username: clerkUserId, password:'oauth', email: clerkUserId+"@example.com"})).id; })();
+      const agent = await storage.getAgent(req.params.id, userId);
+      if(!agent) return res.status(404).json({message:'Agent not found'});
+      const body = req.body as { allowEmbed?: boolean; embedAllowedOrigins?: string; rotate?: boolean };
+      const allowEmbed = body.allowEmbed ?? true;
+      // Determine publicKey: only generate when embedding is enabled and either there's
+      // no existing key or caller requested rotation.
+      let publicKey: string | null = agent.publicKey ?? null;
+      if (allowEmbed) {
+        if (body.rotate) {
+          publicKey = nanoid(24);
+        } else if (!publicKey) {
+          publicKey = nanoid(24);
+        }
+      }
+      await storage.updateAgent(agent.id, { allowEmbed, embedAllowedOrigins: body.embedAllowedOrigins, publicKey } as any, userId);
+      res.json({ publicKey, allowEmbed });
+    } catch (e) {
+      console.error('Publish agent failed', e);
+      res.status(500).json({ message: 'Failed to publish agent' });
+    }
+  });
+
+  // Create / reuse embedded session
+  app.post('/api/embed/:publicKey/session', async (req, res) => {
+    try {
+      const { publicKey } = req.params;
+      const agent = await storage.getAgentByPublicKey(publicKey);
+      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
+  const requestOrigin = extractRequestOrigin(req);
+  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
+        return res.status(403).json({ message: 'Origin not allowed' });
+      }
+      const externalUserId = (req.body && req.body.externalUserId) || null;
+      const { sessionId: incomingSession, newConversation } = req.body || {};
+      let sessionId = incomingSession;
+      let conversation;
+      if(sessionId && !newConversation) {
+        conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
+      }
+      if(!conversation) {
+        sessionId = nanoid(32);
+        conversation = await storage.createEmbeddedConversation(agent.id, sessionId, requestOrigin, externalUserId);
+      }
+  res.json({ sessionId, conversationId: conversation.id, agentName: agent.name, agentAvatar: agent.avatar || null });
+    } catch (e) {
+      console.error('Embedded session error', e);
+      res.status(500).json({ message: 'Failed to create embedded session' });
+    }
+  });
+
+  // Post message (embedded)
+  app.post('/api/embed/:publicKey/messages', async (req, res) => {
+    try {
+      const { publicKey } = req.params;
+      const agent = await storage.getAgentByPublicKey(publicKey);
+      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
+  const requestOrigin = extractRequestOrigin(req);
+  console.log('Embed message request from origin:', requestOrigin);
+
+  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
+        return res.status(403).json({ message: 'Origin not allowed' });
+      }
+      const { sessionId, content } = req.body || {};
+      if(!sessionId || !content) return res.status(400).json({ message: 'sessionId and content required' });
+      const conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
+      if(!conversation) return res.status(404).json({ message: 'Session not found' });
+
+      // Persist user message
+      const userMessage = await storage.createMessage({ conversationId: conversation.id, role: 'user', content });
+
+      // Build limited history
+      const allMessages = await storage.getMessages(conversation.id);
+      const chatHistory = allMessages.slice(-10).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+      // Knowledge retrieval (need agent owner's userId). We stored agent.userId.
+      const knowledgeDocuments = await storage.getKnowledgeDocuments(agent.id, agent.userId);
+      const processedDocs = knowledgeDocuments.filter(d => d.processed && d.embedding).map(d => ({ content: d.content, embedding: d.embedding! }));
+      const knowledgeContext = await findRelevantKnowledge(content, processedDocs);
+
+      const toneInstr = agent.tone ? `Please adopt a ${agent.tone} tone when replying.` : '';
+      const styleInstr = agent.responseStyle ? `Respond in a ${agent.responseStyle} style.` : '';
+      const combinedSystemInstructions = [agent.systemInstructions, toneInstr, styleInstr].filter(Boolean).join('\n\n');
+      const response = await generateAgentResponse(combinedSystemInstructions, chatHistory, knowledgeContext);
+
+      const assistantMessage = await storage.createMessage({ conversationId: conversation.id, role: 'assistant', content: response.content, metadata: { tokensUsed: response.tokensUsed, responseTime: response.responseTime, hasKnowledgeContext: !!knowledgeContext } });
+      res.json({ userMessage, assistantMessage, metadata: { tokensUsed: response.tokensUsed, responseTime: response.responseTime } });
+    } catch (e) {
+      console.error('Embedded message error', e);
+      res.status(500).json({ message: 'Failed to process message' });
+    }
+  });
+
+  // Get messages (embedded)
+  app.get('/api/embed/:publicKey/messages', async (req, res) => {
+    try {
+      const { publicKey } = req.params;
+      const agent = await storage.getAgentByPublicKey(publicKey);
+      if(!agent || !agent.allowEmbed) return res.status(404).json({ message: 'Agent not embeddable' });
+  const requestOrigin = extractRequestOrigin(req);
+  if(!originAllowed(agent.embedAllowedOrigins || '', requestOrigin)) {
+        return res.status(403).json({ message: 'Origin not allowed' });
+      }
+      const sessionId = req.query.sessionId as string;
+      if(!sessionId) return res.status(400).json({ message: 'sessionId required' });
+      const conversation = await storage.getEmbeddedConversation(agent.id, sessionId);
+      if(!conversation) return res.status(404).json({ message: 'Session not found' });
+      const msgs = await storage.getMessages(conversation.id);
+      res.json(msgs.slice(-50));
+    } catch (e) {
+      console.error('Embedded fetch messages error', e);
+      res.status(500).json({ message: 'Failed to fetch messages' });
+    }
+  });
 }

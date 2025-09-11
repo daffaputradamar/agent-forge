@@ -17,6 +17,7 @@ export interface IStorage {
   // Agents
   getAgents(userId: string): Promise<Agent[]>;
   getAgent(id: string, userId: string): Promise<Agent | undefined>;
+  getAgentByPublicKey(publicKey: string): Promise<Agent | undefined>;
   createAgent(agent: InsertAgent): Promise<Agent>;
   updateAgent(id: string, agent: Partial<InsertAgent>, userId: string): Promise<Agent | undefined>;
   deleteAgent(id: string, userId: string): Promise<boolean>;
@@ -30,8 +31,10 @@ export interface IStorage {
   // Conversations
   getConversations(userId: string, agentId?: string): Promise<Conversation[]>;
   getConversation(id: string, userId: string): Promise<Conversation | undefined>;
+  getEmbeddedConversation(agentId: string, sessionId: string): Promise<Conversation | undefined>;
   updateConversation(id: string, updates: Partial<Conversation>, userId: string): Promise<Conversation | undefined>;
   createConversation(conversation: InsertConversation): Promise<Conversation>;
+  createEmbeddedConversation(agentId: string, sessionId: string, origin?: string, externalUserId?: string | null): Promise<Conversation>;
   deleteConversation(id: string, userId: string): Promise<boolean>;
   
   // Messages
@@ -79,6 +82,14 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(agents)
       .where(and(eq(agents.id, id), eq(agents.userId, userId)));
+    return agent || undefined;
+  }
+
+  async getAgentByPublicKey(publicKey: string): Promise<Agent | undefined> {
+    const [agent] = await db
+      .select()
+      .from(agents)
+      .where(and(eq(agents.publicKey, publicKey), eq(agents.allowEmbed, true)) as any);
     return agent || undefined;
   }
 
@@ -164,10 +175,35 @@ export class DatabaseStorage implements IStorage {
     return conversation || undefined;
   }
 
+  async getEmbeddedConversation(agentId: string, sessionId: string): Promise<Conversation | undefined> {
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.agentId, agentId), eq(conversations.sessionId, sessionId)) as any);
+    return conversation || undefined;
+  }
+
   async createConversation(conversation: InsertConversation): Promise<Conversation> {
     const [newConversation] = await db
       .insert(conversations)
       .values(conversation)
+      .returning();
+    return newConversation;
+  }
+
+  async createEmbeddedConversation(agentId: string, sessionId: string, origin?: string, externalUserId?: string | null): Promise<Conversation> {
+    const [newConversation] = await db
+      .insert(conversations)
+      .values({
+        agentId,
+        userId: null,
+        title: null,
+        status: 'active',
+        sessionId,
+        isEmbedded: true,
+        origin: origin || null,
+        externalUserId: externalUserId || null,
+      } as any)
       .returning();
     return newConversation;
   }

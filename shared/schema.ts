@@ -23,6 +23,10 @@ export const agents = pgTable("agents", {
   systemInstructions: text("system_instructions").notNull(),
   status: text("status").notNull().default("draft"), // draft, active, inactive
   avatar: text("avatar"), // gradient colors or image URL
+  // Embed / public deployment fields
+  allowEmbed: boolean("allow_embed").notNull().default(false),
+  publicKey: varchar("public_key"), // nullable until published; should be unique when set
+  embedAllowedOrigins: text("embed_allowed_origins"), // comma separated list or *
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -46,6 +50,11 @@ export const conversations = pgTable("conversations", {
   userId: varchar("user_id").references(() => users.id),
   title: text("title"),
   status: text("status").notNull().default("active"), // active, archived
+  // Embed session context
+  sessionId: varchar("session_id"), // for anonymous embedded sessions
+  isEmbedded: boolean("is_embedded").notNull().default(false),
+  externalUserId: text("external_user_id"),
+  origin: text("origin"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -115,6 +124,7 @@ export const insertAgentSchema = createInsertSchema(agents).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  publicKey: true,
 });
 
 export const insertKnowledgeDocumentSchema = createInsertSchema(knowledgeDocuments).omit({
@@ -128,6 +138,8 @@ export const insertConversationSchema = createInsertSchema(conversations).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+  sessionId: true,
+  isEmbedded: true,
 });
 
 export const insertMessageSchema = createInsertSchema(messages).omit({

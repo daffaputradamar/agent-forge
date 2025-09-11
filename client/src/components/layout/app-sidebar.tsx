@@ -49,9 +49,7 @@ const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/agents", label: "My Agents", icon: Bot },
   { path: "/knowledge", label: "Knowledge Base", icon: Book },
-  { path: "/conversations", label: "Conversations", icon: MessageSquare },
-  { path: "/deploy", label: "Deploy", icon: Share },
-  { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/conversations", label: "Conversations", icon: MessageSquare }
 ];
 
 export default function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {

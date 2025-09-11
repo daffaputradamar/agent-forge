@@ -1,7 +1,8 @@
 import 'dotenv/config'
 
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes, registerEmbedRoutes } from "./routes";
+import { registerEmbedWidget } from "./embed-widget";
 import { setupVite, serveStatic, log } from "./vite";
 import { clerkMiddleware } from "./middleware/auth";
 
@@ -44,6 +45,8 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+  registerEmbedRoutes(app);
+  registerEmbedWidget(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
